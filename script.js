@@ -1173,7 +1173,12 @@ function setupAdminLogin() {
       closeModal();
       return;
     } catch (error) {
-      errorNode.textContent = 'Invalid user ID or password.';
+      const reason = String(error?.message || 'Unknown error');
+      if (/unauthorized/i.test(reason)) {
+        errorNode.textContent = 'Invalid user ID or password.';
+      } else {
+        errorNode.textContent = 'Login failed due to network/deployment issue. Please hard refresh and try again.';
+      }
     }
   }
 
