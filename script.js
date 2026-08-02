@@ -34,9 +34,8 @@ const leaders = [
 ];
 
 const adminAuth = {
-  userId: 'Meivazhi_Salai_Cricket_Club',
-  password: 'Salai@1976',
-  storageKey: 'msvl_admin_logged_in'
+  storageKey: 'msvl_admin_logged_in',
+  sessionKey: 'msvl_admin_session'
 };
 
 const storageKeys = {
@@ -45,6 +44,293 @@ const storageKeys = {
   matchWinners: 'msvl_match_winners',
   resultsMeta: 'msvl_results_meta'
 };
+
+const cloudConfig = {
+  webAppUrl: 'https://script.google.com/macros/s/AKfycbxWUqHHNbzPO7TiwXjq6J6bvd6nVQ0Bdme1-VCpYoTXqslTgssP0WPDXIdOipCyVUQe/exec'
+};
+
+function getAdminSession() {
+  try {
+    const raw = window.sessionStorage.getItem(adminAuth.sessionKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const username = String(parsed.username || '').trim();
+    const password = String(parsed.password || '');
+    if (!username || !password) return null;
+    return { username, password };
+  } catch (error) {
+    return null;
+  }
+}
+
+function setAdminSession(username, password) {
+  window.sessionStorage.setItem(
+    adminAuth.sessionKey,
+    JSON.stringify({ username: String(username || '').trim(), password: String(password || '') })
+  );
+}
+
+function clearAdminSession() {
+  window.sessionStorage.removeItem(adminAuth.sessionKey);
+}
+
+function buildProtectedPayload(payload) {
+  const session = getAdminSession();
+  if (!session) return null;
+  return {
+    ...payload,
+    adminUser: session.username,
+    adminPass: session.password
+  };
+}
+
+function isCloudEnabled() {
+  return typeof cloudConfig.webAppUrl === 'string' && cloudConfig.webAppUrl.startsWith('http');
+}
+
+async function cloudFetchAllData() {
+  if (!isCloudEnabled()) return null;
+  const response = await fetch(`${cloudConfig.webAppUrl}?action=allData`, {
+    method: 'GET',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Cloud fetch failed: ${response.status}`);
+  const payload = await response.json();
+  if (!payload || payload.ok !== true) throw new Error(payload?.error || 'Cloud fetch returned invalid response');
+  return payload;
+}
+
+async function cloudPost(payload) {
+  if (!isCloudEnabled()) return;
+  const response = await fetch(cloudConfig.webAppUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(`Cloud write failed: ${response.status}`);
+  const result = await response.json();
+  if (!result || result.ok !== true) throw new Error(result?.error || 'Cloud write returned invalid response');
+}
+
+function parseCloudRegistrations(rows) {
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .map((row) => {
+      let details = {};
+      try {
+        details = row.playerJson ? JSON.parse(String(row.playerJson)) : {};
+      } catch (error) {
+        details = {};
+      }
+
+      const captainFromRow = {
+        name: String(row.captainName || '').trim(),
+        phone: String(row.captainPhone || '').trim(),
+        aadhaar: String(row.captainAadhaar || '').trim()
+      };
+
+      const record = {
+        id: String(row.id || details.id || '').trim(),
+        createdAt: String(row.createdAt || details.createdAt || new Date().toISOString()),
+        status: String(row.status || details.status || 'pending').trim() || 'pending',
+        teamName: String(row.teamName || details.teamName || '').trim(),
+        displayTeamName: String(details.displayTeamName || row.teamName || '').trim(),
+        teamLocation: String(details.teamLocation || '').trim(),
+        captain: details.captain && typeof details.captain === 'object' ? details.captain : captainFromRow,
+        vc: details.vc && typeof details.vc === 'object' ? details.vc : { name: '', phone: '', aadhaar: '' },
+        mandatoryPlayers: Array.isArray(details.mandatoryPlayers) ? details.mandatoryPlayers : [],
+        substitutePlayers: Array.isArray(details.substitutePlayers) ? details.substitutePlayers : []
+      };
+
+      if (!record.id || !record.teamName) return null;
+      if (record.status === 'removed') return null;
+      if (!record.displayTeamName) record.displayTeamName = record.teamName;
+
+      return record;
+    })
+    .filter(Boolean);
+}
+
+function parseCloudTeamSlots(rows) {
+  const slots = createEmptyTeamSlots();
+  if (!Array.isArray(rows)) return slots;
+
+  rows.forEach((row) => {
+    const slotNo = Number(row.slot);
+    if (!Number.isInteger(slotNo) || slotNo < 1 || slotNo > tournament.teams) return;
+    const teamId = String(row.teamId || '').trim();
+    slots[slotNo - 1] = teamId || null;
+  });
+
+  return slots;
+}
+
+function parseCloudMatchWinners(rows) {
+  const winners = {};
+  if (!Array.isArray(rows)) return winners;
+
+  rows.forEach((row) => {
+    const matchNo = String(row.matchId || '').trim();
+    const winnerId = String(row.winnerId || '').trim();
+    if (!matchNo || !winnerId) return;
+    winners[matchNo] = winnerId;
+  });
+
+  return winners;
+}
+
+function parseCloudResultsMeta(rows) {
+  const meta = { matchMeta: {}, teamMeta: {} };
+  if (!Array.isArray(rows)) return meta;
+
+  rows.forEach((row) => {
+    const key = String(row.key || '').trim();
+    const value = String(row.value || '').trim();
+    if (!key) return;
+
+    try {
+      const parsed = value ? JSON.parse(value) : {};
+      if (key === 'matchMeta' && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        meta.matchMeta = parsed;
+      }
+      if (key === 'teamMeta' && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        meta.teamMeta = parsed;
+      }
+    } catch (error) {
+      // Ignore malformed metadata rows and keep defaults.
+    }
+  });
+
+  return meta;
+}
+
+function queueCloudTask(task, label) {
+  task().catch((error) => {
+    console.error(`Cloud sync failed (${label}):`, error);
+  });
+}
+
+function syncRegistrationDelta(previousList, nextList) {
+  const previousById = new Map(previousList.map((item) => [item.id, item]));
+  const nextById = new Map(nextList.map((item) => [item.id, item]));
+
+  nextList.forEach((item) => {
+    if (!previousById.has(item.id)) {
+      queueCloudTask(() => cloudPost({
+        action: 'registerTeam',
+        id: item.id,
+        teamName: item.teamName,
+        captainName: item.captain?.name || '',
+        captainPhone: item.captain?.phone || '',
+        captainAadhaar: item.captain?.aadhaar || '',
+        playerJson: item,
+        status: item.status,
+        createdAt: item.createdAt
+      }), `register ${item.id}`);
+      return;
+    }
+
+    const previous = previousById.get(item.id);
+    if ((previous?.status || '') !== (item.status || '')) {
+      const payload = buildProtectedPayload({
+        action: 'updateRegistrationStatus',
+        id: item.id,
+        status: item.status
+      });
+      if (!payload) return;
+      queueCloudTask(() => cloudPost(payload), `registration status ${item.id}`);
+    }
+  });
+
+  previousList.forEach((item) => {
+    if (nextById.has(item.id)) return;
+    const payload = buildProtectedPayload({
+      action: 'updateRegistrationStatus',
+      id: item.id,
+      status: 'removed'
+    });
+    if (!payload) return;
+    queueCloudTask(() => cloudPost(payload), `registration remove ${item.id}`);
+  });
+}
+
+function syncTeamSlotsToCloud(slots) {
+  const rows = slots
+    .map((teamId, index) => ({
+      slot: String(index + 1),
+      teamId: teamId || '',
+      teamName: ''
+    }))
+    .filter((row) => row.teamId);
+
+  const payload = buildProtectedPayload({
+    action: 'saveTeamSlots',
+    rows
+  });
+  if (!payload) return;
+
+  queueCloudTask(() => cloudPost(payload), 'team slots');
+}
+
+function syncMatchWinnersToCloud(winnersMap) {
+  const timestamp = new Date().toISOString();
+  const rows = Object.keys(winnersMap)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((matchId) => ({
+      matchId: String(matchId),
+      round: '',
+      teamAId: '',
+      teamAName: '',
+      teamBId: '',
+      teamBName: '',
+      winnerId: winnersMap[matchId] || '',
+      winnerName: '',
+      updatedAt: timestamp
+    }));
+
+  const payload = buildProtectedPayload({
+    action: 'saveMatches',
+    rows
+  });
+  if (!payload) return;
+
+  queueCloudTask(() => cloudPost(payload), 'match winners');
+}
+
+function syncResultsMetaToCloud(meta) {
+  const rows = [
+    { key: 'matchMeta', value: JSON.stringify(meta.matchMeta || {}) },
+    { key: 'teamMeta', value: JSON.stringify(meta.teamMeta || {}) }
+  ];
+
+  const payload = buildProtectedPayload({
+    action: 'saveResultsMeta',
+    rows
+  });
+  if (!payload) return;
+
+  queueCloudTask(() => cloudPost(payload), 'results metadata');
+}
+
+async function hydrateLocalStateFromCloud() {
+  if (!isCloudEnabled()) return;
+
+  const cloudData = await cloudFetchAllData();
+  if (!cloudData) return;
+
+  const registrations = parseCloudRegistrations(cloudData.registrations);
+  const teamSlots = parseCloudTeamSlots(cloudData.teamSlots);
+  const matchWinners = parseCloudMatchWinners(cloudData.matches);
+  const resultsMeta = parseCloudResultsMeta(cloudData.resultsMeta);
+
+  window.localStorage.setItem(storageKeys.registrations, JSON.stringify(registrations));
+  window.localStorage.setItem(storageKeys.teamSlots, JSON.stringify(teamSlots));
+  window.localStorage.setItem(storageKeys.matchWinners, JSON.stringify(matchWinners));
+  window.localStorage.setItem(storageKeys.resultsMeta, JSON.stringify(resultsMeta));
+}
 
 function createEmptyTeamSlots() {
   return Array.from({ length: tournament.teams }, () => null);
@@ -69,6 +355,7 @@ function getTeamSlots() {
 
 function saveTeamSlots(slots) {
   window.localStorage.setItem(storageKeys.teamSlots, JSON.stringify(slots));
+  if (isCloudEnabled()) syncTeamSlotsToCloud(slots);
 }
 
 function syncTeamSlotsWithRegistrations(registrations) {
@@ -127,6 +414,7 @@ function getMatchWinners() {
 
 function saveMatchWinners(map) {
   window.localStorage.setItem(storageKeys.matchWinners, JSON.stringify(map));
+  if (isCloudEnabled()) syncMatchWinnersToCloud(map);
 }
 
 function getResultsMeta() {
@@ -152,6 +440,7 @@ function getResultsMeta() {
 
 function saveResultsMeta(meta) {
   window.localStorage.setItem(storageKeys.resultsMeta, JSON.stringify(meta));
+  if (isCloudEnabled()) syncResultsMetaToCloud(meta);
 }
 
 function escapeHtml(value) {
@@ -838,6 +1127,7 @@ function setupAdminLogin() {
       pill.hidden = false;
     } else {
       window.localStorage.removeItem(adminAuth.storageKey);
+      clearAdminSession();
       document.body.classList.remove('admin-mode');
       toggleButton.textContent = 'Login as Admin';
       pill.hidden = true;
@@ -862,15 +1152,29 @@ function setupAdminLogin() {
     modal.hidden = true;
   }
 
-  function doLogin() {
+  async function doLogin() {
     const userId = (userInput.value || '').trim();
     const password = passInput.value || '';
-    if (userId === adminAuth.userId && password === adminAuth.password) {
+
+    if (!userId || !password) {
+      errorNode.textContent = 'Enter user ID and password.';
+      return;
+    }
+
+    try {
+      await cloudPost({
+        action: 'adminLogin',
+        username: userId,
+        password
+      });
+
+      setAdminSession(userId, password);
       setAdminMode(true);
       closeModal();
       return;
+    } catch (error) {
+      errorNode.textContent = 'Invalid user ID or password.';
     }
-    errorNode.textContent = 'Invalid user ID or password.';
   }
 
   toggleButton.addEventListener('click', () => {
@@ -892,7 +1196,7 @@ function setupAdminLogin() {
     if (event.key === 'Enter') doLogin();
   });
 
-  setAdminMode(isAdminLoggedIn());
+  setAdminMode(isAdminLoggedIn() && !!getAdminSession());
 }
 
 function formatAadhaar(value) {
@@ -916,7 +1220,9 @@ function getRegistrations() {
 }
 
 function saveRegistrations(list) {
+  const previous = getRegistrations();
   window.localStorage.setItem(storageKeys.registrations, JSON.stringify(list));
+  if (isCloudEnabled()) syncRegistrationDelta(previous, list);
 }
 
 function getStatusLabel(status) {
@@ -1710,20 +2016,31 @@ function setupRegistrationForm() {
   setupTeamDetailModal();
 }
 
-fillCommonData();
-buildCounts();
-buildOrganizers();
-buildFixtures();
-buildAwards();
-buildResultsPage();
-setupCountdown();
-setupScrollReveal();
-setupRedirectPage();
-highlightCurrentNav();
-setupBackToTop();
-setupAdminLogin();
-setupRegistrationForm();
-renderApprovedTeams();
-setupTeamSlotDragAndDrop();
-setupFixtureWinnerSelection();
-setupResultsAdminEditing();
+async function initializeApp() {
+  fillCommonData();
+  buildCounts();
+  buildOrganizers();
+  buildAwards();
+  setupCountdown();
+  setupScrollReveal();
+  setupRedirectPage();
+  highlightCurrentNav();
+  setupBackToTop();
+
+  try {
+    await hydrateLocalStateFromCloud();
+  } catch (error) {
+    console.error('Cloud initialization failed:', error);
+  }
+
+  buildFixtures();
+  buildResultsPage();
+  setupAdminLogin();
+  setupRegistrationForm();
+  renderApprovedTeams();
+  setupTeamSlotDragAndDrop();
+  setupFixtureWinnerSelection();
+  setupResultsAdminEditing();
+}
+
+initializeApp();
