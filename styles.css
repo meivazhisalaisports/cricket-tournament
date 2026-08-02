@@ -545,6 +545,57 @@ body.admin-mode .admin-only {
   font-size: 0.9rem;
 }
 
+.payment-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.payment-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.payment-qr-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.payment-qr {
+  width: min(100%, 320px);
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.payment-upi {
+  margin: 0;
+  color: #dbe8ff;
+  word-break: break-all;
+}
+
+.payment-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.payment-summary {
+  margin: 0;
+  color: #f4dc9d;
+  font-weight: 700;
+}
+
+.payment-actions .btn {
+  width: fit-content;
+}
+
 .form-note {
   margin: 2px 0 0;
   color: var(--muted);
@@ -1831,6 +1882,14 @@ td {
 
   .player-row {
     grid-template-columns: 1fr;
+  }
+
+  .payment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-actions .btn {
+    width: 100%;
   }
 
   .team-detail-row {
