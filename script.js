@@ -1842,6 +1842,11 @@ function setupRegistrationForm() {
           return;
         }
 
+        if (!hasSubName && value) {
+          addError(subNameInput || input, 'Substitute name is required when Aadhaar is entered.');
+          return;
+        }
+
         if (value && !isValidAadhaar(value)) {
           addError(input, `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.`);
           return;
