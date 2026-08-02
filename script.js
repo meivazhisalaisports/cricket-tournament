@@ -1,0 +1,1636 @@
+const tournament = {
+  name: 'Meivazhi Salai Village League',
+  year: '2026',
+  dates: 'Aug 28, 29, 30',
+  venue: 'Meivazhi Salai, Koothini Patti Road, Keelakuruchi Post, Iluppur Taluk, Pudukottai 622101',
+  teams: 16,
+  format: 'Knockout',
+  overs: '8+8 overs',
+  prizes: ['1L', '80k', '50k', '30k', '20k'],
+  organizers: [
+    { name: 'Salai Piriyadharshan', phone: '9751495916' },
+    { name: 'Salai Gavanamani', phone: '9159973352' },
+    { name: 'Salai Gnana Sudhan', phone: '9943831939' },
+    { name: 'Salai Keshava Moorthy', phone: '9789871237' }
+  ],
+  email: 'meivazhisalaisports@gmail.com',
+  registerUrl: 'https://forms.gle/REPLACE_WITH_YOUR_GOOGLE_FORM',
+  liveScoreUrl: 'https://cricheroes.com/REPLACE_WITH_YOUR_LIVE_SCORE_LINK',
+  mapEmbedUrl:
+    'https://www.google.com/maps?q=Koothini%20Patti%20Road%2C%20Meivazhi%20Salai%2C%20Keelakuruchi%20Post%2C%20Iluppur%20Taluk%2C%20Pudukottai%20622101&output=embed'
+};
+
+const fixtures = [
+  { title: 'Day 1', meta: '8 knockout matches', description: 'Round 1 elimination matches to select the 8 winners.' },
+  { title: 'Day 2', meta: 'Quarterfinal selection', description: 'The next round reduces the field to the 4 semifinal teams.' },
+  { title: 'Day 3', meta: 'Semis, third place, final', description: 'Semifinal matches, 3rd place match, and the championship final.' }
+];
+
+const leaders = [
+  { title: 'Man of the Match', value: 'Awarded for every game' },
+  { title: 'Bowler of the Series', value: 'Series-level performance award' },
+  { title: 'Batsman of the Series', value: 'Series-level batting award' },
+  { title: 'Fielder of the Series', value: 'Outstanding fielding award' }
+];
+
+const adminAuth = {
+  userId: 'Meivazhi_Salai_Cricket_Club',
+  password: 'Salai@1976',
+  storageKey: 'msvl_admin_logged_in'
+};
+
+const storageKeys = {
+  registrations: 'msvl_team_registrations',
+  teamSlots: 'msvl_team_slots',
+  matchWinners: 'msvl_match_winners',
+  resultsMeta: 'msvl_results_meta'
+};
+
+function createEmptyTeamSlots() {
+  return Array.from({ length: tournament.teams }, () => null);
+}
+
+function getTeamSlots() {
+  try {
+    const raw = window.localStorage.getItem(storageKeys.teamSlots);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return createEmptyTeamSlots();
+
+    const normalized = createEmptyTeamSlots();
+    normalized.forEach((_, index) => {
+      const value = parsed[index];
+      normalized[index] = typeof value === 'string' && value ? value : null;
+    });
+    return normalized;
+  } catch (error) {
+    return createEmptyTeamSlots();
+  }
+}
+
+function saveTeamSlots(slots) {
+  window.localStorage.setItem(storageKeys.teamSlots, JSON.stringify(slots));
+}
+
+function syncTeamSlotsWithRegistrations(registrations) {
+  const approved = registrations.filter((item) => item.status === 'approved');
+  const approvedIds = new Set(approved.map((item) => item.id));
+  const slots = getTeamSlots();
+  let changed = false;
+
+  for (let i = 0; i < slots.length; i += 1) {
+    const slotId = slots[i];
+    if (slotId && !approvedIds.has(slotId)) {
+      slots[i] = null;
+      changed = true;
+    }
+  }
+
+  approved.forEach((team) => {
+    if (slots.includes(team.id)) return;
+    const emptyIndex = slots.findIndex((slotId) => !slotId);
+    if (emptyIndex !== -1) {
+      slots[emptyIndex] = team.id;
+      changed = true;
+    }
+  });
+
+  if (changed) saveTeamSlots(slots);
+  return slots;
+}
+
+function swapTeamSlots(fromSlot, toSlot) {
+  const slots = getTeamSlots();
+  const fromIndex = fromSlot - 1;
+  const toIndex = toSlot - 1;
+  const temp = slots[fromIndex];
+  slots[fromIndex] = slots[toIndex];
+  slots[toIndex] = temp;
+  saveTeamSlots(slots);
+}
+
+function getMatchWinners() {
+  try {
+    const raw = window.localStorage.getItem(storageKeys.matchWinners);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    const normalized = {};
+    Object.keys(parsed).forEach((key) => {
+      const value = parsed[key];
+      if (typeof value === 'string' && value) normalized[key] = value;
+    });
+    return normalized;
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveMatchWinners(map) {
+  window.localStorage.setItem(storageKeys.matchWinners, JSON.stringify(map));
+}
+
+function getResultsMeta() {
+  try {
+    const raw = window.localStorage.getItem(storageKeys.resultsMeta);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { matchMeta: {}, teamMeta: {} };
+    }
+
+    const matchMeta = parsed.matchMeta && typeof parsed.matchMeta === 'object' && !Array.isArray(parsed.matchMeta)
+      ? parsed.matchMeta
+      : {};
+    const teamMeta = parsed.teamMeta && typeof parsed.teamMeta === 'object' && !Array.isArray(parsed.teamMeta)
+      ? parsed.teamMeta
+      : {};
+
+    return { matchMeta, teamMeta };
+  } catch (error) {
+    return { matchMeta: {}, teamMeta: {} };
+  }
+}
+
+function saveResultsMeta(meta) {
+  window.localStorage.setItem(storageKeys.resultsMeta, JSON.stringify(meta));
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function removeTeamFromTournamentData(teamId) {
+  if (!teamId) return;
+
+  const slots = getTeamSlots();
+  let slotsChanged = false;
+  for (let i = 0; i < slots.length; i += 1) {
+    if (slots[i] === teamId) {
+      slots[i] = null;
+      slotsChanged = true;
+    }
+  }
+  if (slotsChanged) saveTeamSlots(slots);
+
+  const winners = getMatchWinners();
+  let winnersChanged = false;
+  Object.keys(winners).forEach((matchNo) => {
+    if (winners[matchNo] === teamId) {
+      delete winners[matchNo];
+      winnersChanged = true;
+    }
+  });
+  if (winnersChanged) saveMatchWinners(winners);
+}
+
+function setFixtureStatus(message, type) {
+  const node = document.querySelector('[data-fixture-status]');
+  if (!node) return;
+  node.textContent = message;
+  node.className = `form-status ${type || ''}`.trim();
+}
+
+function buildFixtureBracketData(registrations) {
+  const slots = syncTeamSlotsWithRegistrations(registrations);
+  const byId = new Map(registrations.map((item) => [item.id, item]));
+  const storedWinners = getMatchWinners();
+  const validWinners = {};
+
+  function teamFromSlot(slotIndex) {
+    const id = slots[slotIndex] || null;
+    const team = id ? byId.get(id) : null;
+    if (!team) {
+      return {
+        id: null,
+        name: `Team ${slotIndex + 1} (Not Yet Registered)`
+      };
+    }
+    return {
+      id: team.id,
+      name: team.displayTeamName
+    };
+  }
+
+  function resolveWinner(matchNo, sideA, sideB) {
+    const savedId = storedWinners[String(matchNo)] || '';
+    if (!savedId) return '';
+    if (savedId === sideA.id || savedId === sideB.id) {
+      validWinners[String(matchNo)] = savedId;
+      return savedId;
+    }
+    return '';
+  }
+
+  function winnerParticipant(matchNo, sideA, sideB) {
+    const winnerId = resolveWinner(matchNo, sideA, sideB);
+    if (winnerId && winnerId === sideA.id) return sideA;
+    if (winnerId && winnerId === sideB.id) return sideB;
+    return null;
+  }
+
+  function loserParticipant(matchNo, sideA, sideB) {
+    const winnerId = resolveWinner(matchNo, sideA, sideB);
+    if (!winnerId) return null;
+    if (winnerId === sideA.id) return sideB.id ? sideB : null;
+    if (winnerId === sideB.id) return sideA.id ? sideA : null;
+    return null;
+  }
+
+  function buildMatch(matchNo, sideA, sideB, placeholderA, placeholderB, roundLabel) {
+    const winnerId = resolveWinner(matchNo, sideA, sideB);
+    const winnerName = winnerId === sideA.id ? sideA.name : winnerId === sideB.id ? sideB.name : 'TBD';
+    return {
+      matchNo,
+      roundLabel,
+      sideA: {
+        id: sideA.id || null,
+        name: sideA.id ? sideA.name : placeholderA
+      },
+      sideB: {
+        id: sideB.id || null,
+        name: sideB.id ? sideB.name : placeholderB
+      },
+      winnerId,
+      winnerName,
+      canSelectWinner: !!(sideA.id && sideB.id)
+    };
+  }
+
+  const round1 = Array.from({ length: 8 }, (_, i) => {
+    const aSlot = i * 2;
+    const bSlot = aSlot + 1;
+    return buildMatch(
+      i + 1,
+      teamFromSlot(aSlot),
+      teamFromSlot(bSlot),
+      `Team ${aSlot + 1} (Not Yet Registered)`,
+      `Team ${bSlot + 1} (Not Yet Registered)`,
+      'Round 1'
+    );
+  });
+
+  const r1w1 = winnerParticipant(1, round1[0].sideA, round1[0].sideB);
+  const r1w2 = winnerParticipant(2, round1[1].sideA, round1[1].sideB);
+  const r1w3 = winnerParticipant(3, round1[2].sideA, round1[2].sideB);
+  const r1w4 = winnerParticipant(4, round1[3].sideA, round1[3].sideB);
+  const r1w5 = winnerParticipant(5, round1[4].sideA, round1[4].sideB);
+  const r1w6 = winnerParticipant(6, round1[5].sideA, round1[5].sideB);
+  const r1w7 = winnerParticipant(7, round1[6].sideA, round1[6].sideB);
+  const r1w8 = winnerParticipant(8, round1[7].sideA, round1[7].sideB);
+
+  const quarterfinals = [
+    buildMatch(9, r1w1 || { id: null, name: '' }, r1w2 || { id: null, name: '' }, 'Match 1 Winner', 'Match 2 Winner', 'Quarterfinals'),
+    buildMatch(10, r1w3 || { id: null, name: '' }, r1w4 || { id: null, name: '' }, 'Match 3 Winner', 'Match 4 Winner', 'Quarterfinals'),
+    buildMatch(11, r1w5 || { id: null, name: '' }, r1w6 || { id: null, name: '' }, 'Match 5 Winner', 'Match 6 Winner', 'Quarterfinals'),
+    buildMatch(12, r1w7 || { id: null, name: '' }, r1w8 || { id: null, name: '' }, 'Match 7 Winner', 'Match 8 Winner', 'Quarterfinals')
+  ];
+
+  const qfw1 = winnerParticipant(9, quarterfinals[0].sideA, quarterfinals[0].sideB);
+  const qfw2 = winnerParticipant(10, quarterfinals[1].sideA, quarterfinals[1].sideB);
+  const qfw3 = winnerParticipant(11, quarterfinals[2].sideA, quarterfinals[2].sideB);
+  const qfw4 = winnerParticipant(12, quarterfinals[3].sideA, quarterfinals[3].sideB);
+
+  const semifinals = [
+    buildMatch(13, qfw1 || { id: null, name: '' }, qfw2 || { id: null, name: '' }, 'Match 9 Winner', 'Match 10 Winner', 'Semifinals'),
+    buildMatch(14, qfw3 || { id: null, name: '' }, qfw4 || { id: null, name: '' }, 'Match 11 Winner', 'Match 12 Winner', 'Semifinals')
+  ];
+
+  const sfLoser1 = loserParticipant(13, semifinals[0].sideA, semifinals[0].sideB);
+  const sfLoser2 = loserParticipant(14, semifinals[1].sideA, semifinals[1].sideB);
+  const sfWinner1 = winnerParticipant(13, semifinals[0].sideA, semifinals[0].sideB);
+  const sfWinner2 = winnerParticipant(14, semifinals[1].sideA, semifinals[1].sideB);
+
+  const bronzeFinal = buildMatch(
+    15,
+    sfLoser1 || { id: null, name: '' },
+    sfLoser2 || { id: null, name: '' },
+    'Match 13 Loser',
+    'Match 14 Loser',
+    'Bronze Final (3rd Place Playoff)'
+  );
+
+  const grandFinal = buildMatch(
+    16,
+    sfWinner1 || { id: null, name: '' },
+    sfWinner2 || { id: null, name: '' },
+    'Match 13 Winner',
+    'Match 14 Winner',
+    'Grand Final'
+  );
+
+  const storedJson = JSON.stringify(storedWinners);
+  const validJson = JSON.stringify(validWinners);
+  if (storedJson !== validJson) {
+    saveMatchWinners(validWinners);
+  }
+
+  return {
+    round1,
+    quarterfinals,
+    semifinals,
+    bronzeFinal,
+    grandFinal
+  };
+}
+
+function fillCommonData() {
+  document.querySelectorAll('[data-tournament-name]').forEach((node) => node.textContent = tournament.name);
+  document.querySelectorAll('[data-tournament-year]').forEach((node) => node.textContent = tournament.year);
+  document.querySelectorAll('[data-tournament-dates]').forEach((node) => node.textContent = tournament.dates);
+  document.querySelectorAll('[data-tournament-venue]').forEach((node) => node.textContent = tournament.venue);
+  document.querySelectorAll('[data-organizer-email]').forEach((node) => node.textContent = tournament.email);
+  document.querySelectorAll('[data-register-url]').forEach((node) => node.href = tournament.registerUrl);
+  document.querySelectorAll('[data-live-url]').forEach((node) => node.href = tournament.liveScoreUrl);
+  document.querySelectorAll('[data-map-url]').forEach((node) => node.src = tournament.mapEmbedUrl);
+}
+
+function buildCounts() {
+  const teamCountNodes = document.querySelectorAll('[data-team-count]');
+  teamCountNodes.forEach((node) => node.textContent = tournament.teams);
+
+  const prizeNodes = document.querySelectorAll('[data-prize-list]');
+  const prizeText = tournament.prizes.join(' • ');
+  prizeNodes.forEach((node) => node.textContent = prizeText);
+}
+
+function buildOrganizers() {
+  const organizerWrap = document.querySelector('[data-organizers]');
+  if (!organizerWrap) return;
+
+  organizerWrap.innerHTML = tournament.organizers
+    .map(
+      (organizer) => `
+        <div class="card">
+          <h3>${organizer.name}</h3>
+          <p>${organizer.phone}</p>
+        </div>
+      `
+    )
+    .join('');
+}
+
+function buildFixtures() {
+  const fixtureWrap = document.querySelector('[data-fixtures]');
+  if (!fixtureWrap) return;
+
+  const registrations = getRegistrations();
+  const bracket = buildFixtureBracketData(registrations);
+  const isAdminViewer = window.localStorage.getItem(adminAuth.storageKey) === 'true';
+
+  function renderMatchCard(match) {
+    const winnerOptions = `
+      <option value="">Select winner</option>
+      ${match.sideA.id ? `<option value="${match.sideA.id}" ${match.winnerId === match.sideA.id ? 'selected' : ''}>${match.sideA.name}</option>` : ''}
+      ${match.sideB.id ? `<option value="${match.sideB.id}" ${match.winnerId === match.sideB.id ? 'selected' : ''}>${match.sideB.name}</option>` : ''}
+    `;
+
+    return `
+      <article class="card fixture-match-card">
+        <h4>Match ${match.matchNo}</h4>
+        <p class="fixture-round-label">${match.roundLabel}</p>
+        <div class="fixture-team-row">
+          <strong>${match.sideA.name}</strong>
+        </div>
+        <div class="fixture-vs">vs</div>
+        <div class="fixture-team-row">
+          <strong>${match.sideB.name}</strong>
+        </div>
+        <p class="fixture-winner-view"><strong>Winner:</strong> ${match.winnerName}</p>
+        ${
+          isAdminViewer
+            ? `<div class="admin-only fixture-admin-controls">
+                ${
+                  match.canSelectWinner
+                    ? `<label>Pick Winner<select data-fixture-winner="${match.matchNo}">${winnerOptions}</select></label>`
+                    : '<p class="form-note">Winner selection unlocks when both teams are available.</p>'
+                }
+              </div>`
+            : ''
+        }
+      </article>
+    `;
+  }
+
+  const round1Markup = bracket.round1.map((match) => renderMatchCard(match)).join('');
+  const quarterMarkup = bracket.quarterfinals.map((match) => renderMatchCard(match)).join('');
+  const semiMarkup = bracket.semifinals.map((match) => renderMatchCard(match)).join('');
+
+  fixtureWrap.innerHTML = `
+    <div class="fixture-plan">
+      ${fixtures
+        .map(
+          (item, index) => `
+            <div class="timeline-item fade-up delay-${index + 1}">
+              <strong>${item.title}</strong>
+              <div>
+                <div>${item.meta}</div>
+                <p>${item.description}</p>
+              </div>
+            </div>
+          `
+        )
+        .join('')}
+    </div>
+    <section class="fixture-round">
+      <h2 class="section-title">Round 1 Pairing (From Teams Slot Order)</h2>
+      <p class="section-note">If admin swaps slot order in Teams tab, these match pairs update automatically.</p>
+      <p class="form-status" data-fixture-status></p>
+      <div class="fixture-match-grid">${round1Markup}</div>
+    </section>
+    <section class="fixture-round">
+      <h2 class="section-title">Quarterfinals (Match 9 - Match 12)</h2>
+      <p class="section-note">Slots auto-fill from Round 1 winners.</p>
+      <div class="fixture-match-grid">${quarterMarkup}</div>
+    </section>
+    <section class="fixture-round">
+      <h2 class="section-title">Semifinals (Match 13 - Match 14)</h2>
+      <p class="section-note">Slots auto-fill from quarterfinal winners.</p>
+      <div class="fixture-match-grid">${semiMarkup}</div>
+    </section>
+    <section class="fixture-round fixture-round-split">
+      <article>
+        <h2 class="section-title">Bronze Final (3rd Place Playoff)</h2>
+        <p class="section-note">For the losers of the semifinals, to decide 3rd and 4th places.</p>
+        <div class="fixture-match-grid fixture-match-grid-single">${renderMatchCard(bracket.bronzeFinal)}</div>
+      </article>
+      <article>
+        <h2 class="section-title">Grand Final</h2>
+        <p class="section-note">Championship match between semifinal winners.</p>
+        <div class="fixture-match-grid fixture-match-grid-single">${renderMatchCard(bracket.grandFinal)}</div>
+      </article>
+    </section>
+  `;
+}
+
+function setupFixtureWinnerSelection() {
+  const fixtureWrap = document.querySelector('[data-fixtures]');
+  if (!fixtureWrap || fixtureWrap.dataset.winnerSetup === 'true') return;
+  fixtureWrap.dataset.winnerSetup = 'true';
+
+  fixtureWrap.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-fixture-winner]');
+    if (!select) return;
+
+    const isAdmin = window.localStorage.getItem(adminAuth.storageKey) === 'true';
+    if (!isAdmin) {
+      setFixtureStatus('Admin login required to set match winners.', 'error');
+      buildFixtures();
+      return;
+    }
+
+    const matchNo = Number(select.getAttribute('data-fixture-winner'));
+    if (!matchNo) return;
+
+    const selectedTeamId = String(select.value || '').trim();
+    const winners = getMatchWinners();
+    if (!selectedTeamId) {
+      delete winners[String(matchNo)];
+      saveMatchWinners(winners);
+      buildFixtures();
+      buildResultsPage();
+      setFixtureStatus(`Winner removed for Match ${matchNo}.`, 'success');
+      return;
+    }
+
+    winners[String(matchNo)] = selectedTeamId;
+    saveMatchWinners(winners);
+    buildFixtures();
+    buildResultsPage();
+    setFixtureStatus(`Winner saved for Match ${matchNo}.`, 'success');
+  });
+}
+
+function buildResultsPage() {
+  const podiumNode = document.querySelector('[data-results-podium]');
+  const matchBody = document.querySelector('[data-results-match-body]');
+  const pointsBody = document.querySelector('[data-results-points-body]');
+  if (!podiumNode || !matchBody || !pointsBody) return;
+
+  const isAdminViewer = window.localStorage.getItem(adminAuth.storageKey) === 'true';
+  const registrations = getRegistrations();
+  const slots = syncTeamSlotsWithRegistrations(registrations);
+  const byId = new Map(registrations.map((item) => [item.id, item]));
+  const winners = getMatchWinners();
+  const meta = getResultsMeta();
+
+  const bracket = buildFixtureBracketData(registrations);
+  const allMatches = [
+    ...bracket.round1,
+    ...bracket.quarterfinals,
+    ...bracket.semifinals,
+    bracket.bronzeFinal,
+    bracket.grandFinal
+  ];
+
+  function getRunner(match) {
+    if (!match.winnerId || !match.sideA.id || !match.sideB.id) return 'TBD';
+    if (match.winnerId === match.sideA.id) return match.sideB.name || 'TBD';
+    if (match.winnerId === match.sideB.id) return match.sideA.name || 'TBD';
+    return 'TBD';
+  }
+
+  const champion = bracket.grandFinal.winnerName || 'TBD';
+  const runnerUp = getRunner(bracket.grandFinal);
+  const thirdPlace = bracket.bronzeFinal.winnerName || 'TBD';
+  const fourthPlace = getRunner(bracket.bronzeFinal);
+
+  const podiumRows = [
+    { label: 'Winner', value: champion || 'TBD' },
+    { label: 'Runner', value: runnerUp || 'TBD' },
+    { label: '3rd', value: thirdPlace || 'TBD' },
+    { label: '4th', value: fourthPlace || 'TBD' }
+  ];
+
+  podiumNode.innerHTML = podiumRows
+    .map(
+      (row) => `
+        <article class="card podium-card">
+          <p class="podium-label">${escapeHtml(row.label)}</p>
+          <h3>${escapeHtml(row.value || 'TBD')}</h3>
+        </article>
+      `
+    )
+    .join('');
+
+  matchBody.innerHTML = allMatches
+    .map((match) => {
+      const info = meta.matchMeta[String(match.matchNo)] || {};
+      const pom = String(info.pom || '');
+      const achievement = String(info.achievement || '');
+
+      const pomCell = isAdminViewer
+        ? `<input type="text" class="results-input" data-results-match-field="pom" data-match-no="${match.matchNo}" value="${escapeHtml(pom)}" placeholder="-" />`
+        : `<span>${escapeHtml(pom || '-')}</span>`;
+
+      const achievementCell = isAdminViewer
+        ? `<input type="text" class="results-input" data-results-match-field="achievement" data-match-no="${match.matchNo}" value="${escapeHtml(achievement)}" placeholder="-" />`
+        : `<span>${escapeHtml(achievement || '-')}</span>`;
+
+      return `
+        <tr>
+          <td class="rank">${match.matchNo}</td>
+          <td>${escapeHtml(match.sideA.name || '-')}</td>
+          <td>${escapeHtml(match.sideB.name || '-')}</td>
+          <td>${escapeHtml(match.winnerName || 'TBD')}</td>
+          <td>${pomCell}</td>
+          <td>${achievementCell}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const winCounts = {};
+  Object.values(winners).forEach((teamId) => {
+    if (!teamId) return;
+    winCounts[teamId] = (winCounts[teamId] || 0) + 1;
+  });
+
+  const defaultRank = {};
+  const ranked = slots
+    .map((teamId, index) => {
+      const points = teamId ? (winCounts[teamId] || 0) * 2 : -1;
+      return { teamId, slotNo: index + 1, points };
+    })
+    .filter((row) => !!row.teamId)
+    .sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      return a.slotNo - b.slotNo;
+    });
+
+  ranked.forEach((row, index) => {
+    defaultRank[row.teamId] = String(index + 1);
+  });
+
+  pointsBody.innerHTML = slots
+    .map((teamId, index) => {
+      const slotNo = index + 1;
+      const team = teamId ? byId.get(teamId) : null;
+      const key = teamId || `slot-${slotNo}`;
+      const teamInfo = meta.teamMeta[key] || {};
+      const points = teamId ? String((winCounts[teamId] || 0) * 2) : '-';
+      const autoPosition = teamId ? (defaultRank[teamId] || '-') : '-';
+      const position = String(teamInfo.position || autoPosition || '-');
+      const mvp = String(teamInfo.mvp || '');
+
+      const positionCell = isAdminViewer
+        ? `<input type="text" class="results-input results-input-small" data-results-team-field="position" data-team-key="${escapeHtml(key)}" value="${escapeHtml(position === '-' ? '' : position)}" placeholder="${escapeHtml(autoPosition)}" />`
+        : `<span>${escapeHtml(position || '-')}</span>`;
+
+      const mvpCell = isAdminViewer
+        ? `<input type="text" class="results-input" data-results-team-field="mvp" data-team-key="${escapeHtml(key)}" value="${escapeHtml(mvp)}" placeholder="-" />`
+        : `<span>${escapeHtml(mvp || '-')}</span>`;
+
+      return `
+        <tr>
+          <td>${escapeHtml(team ? team.displayTeamName : `Team ${slotNo} (Not Yet Registered)`)}</td>
+          <td>${escapeHtml(points)}</td>
+          <td>${positionCell}</td>
+          <td>${mvpCell}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function setupResultsAdminEditing() {
+  const matchBody = document.querySelector('[data-results-match-body]');
+  const pointsBody = document.querySelector('[data-results-points-body]');
+  if (matchBody && matchBody.dataset.editBound !== 'true') {
+    matchBody.dataset.editBound = 'true';
+    matchBody.addEventListener('change', (event) => {
+      const input = event.target.closest('[data-results-match-field]');
+      if (!input) return;
+
+      const isAdmin = window.localStorage.getItem(adminAuth.storageKey) === 'true';
+      if (!isAdmin) {
+        buildResultsPage();
+        return;
+      }
+
+      const field = input.getAttribute('data-results-match-field');
+      const matchNo = input.getAttribute('data-match-no');
+      if (!field || !matchNo) return;
+
+      const meta = getResultsMeta();
+      if (!meta.matchMeta[matchNo]) meta.matchMeta[matchNo] = {};
+      meta.matchMeta[matchNo][field] = String(input.value || '').trim();
+      saveResultsMeta(meta);
+      buildResultsPage();
+    });
+  }
+
+  if (pointsBody && pointsBody.dataset.editBound !== 'true') {
+    pointsBody.dataset.editBound = 'true';
+    pointsBody.addEventListener('change', (event) => {
+      const input = event.target.closest('[data-results-team-field]');
+      if (!input) return;
+
+      const isAdmin = window.localStorage.getItem(adminAuth.storageKey) === 'true';
+      if (!isAdmin) {
+        buildResultsPage();
+        return;
+      }
+
+      const field = input.getAttribute('data-results-team-field');
+      const teamKey = input.getAttribute('data-team-key');
+      if (!field || !teamKey) return;
+
+      const meta = getResultsMeta();
+      if (!meta.teamMeta[teamKey]) meta.teamMeta[teamKey] = {};
+      meta.teamMeta[teamKey][field] = String(input.value || '').trim();
+      saveResultsMeta(meta);
+      buildResultsPage();
+    });
+  }
+}
+
+function buildAwards() {
+  const awardWrap = document.querySelector('[data-awards]');
+  if (!awardWrap) return;
+
+  awardWrap.innerHTML = leaders
+    .map(
+      (item) => `
+        <div class="card">
+          <h3>${item.title}</h3>
+          <p>${item.value}</p>
+        </div>
+      `
+    )
+    .join('');
+}
+
+function setupCountdown() {
+  const countdown = document.querySelector('[data-countdown]');
+  if (!countdown) return;
+
+  const eventDate = new Date('2026-08-28T00:00:00').getTime();
+
+  function renderCountdown() {
+    const now = Date.now();
+    const distance = Math.max(0, eventDate - now);
+    const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((distance / (1000 * 60 * 60)) % 24);
+    const minutes = Math.floor((distance / (1000 * 60)) % 60);
+    const seconds = Math.floor((distance / 1000) % 60);
+
+    countdown.textContent = `${days}d : ${hours}h : ${minutes}m : ${seconds}s`;
+  }
+
+  renderCountdown();
+  setInterval(renderCountdown, 1000);
+}
+
+function setupScrollReveal() {
+  const targets = document.querySelectorAll('[data-reveal]');
+  if (!targets.length) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('fade-up');
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.15 }
+  );
+
+  targets.forEach((target) => observer.observe(target));
+}
+
+function setupRedirectPage() {
+  const autoLink = document.querySelector('[data-auto-redirect]');
+  if (!autoLink) return;
+
+  const secondsNode = document.querySelector('[data-redirect-seconds]');
+  const targetUrl = autoLink.href;
+  let seconds = 5;
+
+  const tick = () => {
+    if (secondsNode) secondsNode.textContent = seconds;
+    if (seconds <= 0) {
+      window.location.replace(targetUrl);
+      return;
+    }
+    seconds -= 1;
+    window.setTimeout(tick, 1000);
+  };
+
+  tick();
+}
+
+function highlightCurrentNav() {
+  const current = window.location.pathname.split('/').pop() || 'index.html';
+  document.querySelectorAll('[data-nav-link]').forEach((link) => {
+    const href = link.getAttribute('href') || '';
+    if (href === current || (current === '' && href === 'index.html')) {
+      link.classList.add('active');
+    }
+  });
+}
+
+function setupBackToTop() {
+  const button = document.querySelector('[data-back-top]');
+  if (!button) return;
+  button.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+}
+
+function setupAdminLogin() {
+  const navbarInner = document.querySelector('.navbar-inner');
+  if (!navbarInner) return;
+
+  const actions = document.createElement('div');
+  actions.className = 'admin-actions';
+  actions.innerHTML = `
+    <button type="button" class="admin-login-btn" data-admin-toggle>Login as Admin</button>
+    <span class="admin-mode-pill" data-admin-pill hidden>Admin mode</span>
+  `;
+  navbarInner.appendChild(actions);
+
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.setAttribute('data-admin-modal', '');
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="admin-modal-card" role="dialog" aria-modal="true" aria-label="Admin login">
+      <h3>Admin Login</h3>
+      <p>Use admin credentials to unlock admin-only controls.</p>
+      <label>
+        User ID
+        <input type="text" data-admin-user autocomplete="username" />
+      </label>
+      <label>
+        Password
+        <input type="password" data-admin-pass autocomplete="current-password" />
+      </label>
+      <p class="admin-error" data-admin-error></p>
+      <div class="admin-modal-actions">
+        <button type="button" class="btn btn-secondary" data-admin-cancel>Cancel</button>
+        <button type="button" class="btn btn-primary" data-admin-submit>Login</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const toggleButton = actions.querySelector('[data-admin-toggle]');
+  const pill = actions.querySelector('[data-admin-pill]');
+  const userInput = modal.querySelector('[data-admin-user]');
+  const passInput = modal.querySelector('[data-admin-pass]');
+  const errorNode = modal.querySelector('[data-admin-error]');
+  const cancelButton = modal.querySelector('[data-admin-cancel]');
+  const submitButton = modal.querySelector('[data-admin-submit]');
+
+  function isAdminLoggedIn() {
+    return window.localStorage.getItem(adminAuth.storageKey) === 'true';
+  }
+
+  function setAdminMode(value) {
+    if (value) {
+      window.localStorage.setItem(adminAuth.storageKey, 'true');
+      document.body.classList.add('admin-mode');
+      toggleButton.textContent = 'Logout Admin';
+      pill.hidden = false;
+    } else {
+      window.localStorage.removeItem(adminAuth.storageKey);
+      document.body.classList.remove('admin-mode');
+      toggleButton.textContent = 'Login as Admin';
+      pill.hidden = true;
+    }
+
+    renderTeamApprovalCards();
+    buildFixtures();
+    buildResultsPage();
+  }
+
+  function openModal() {
+    modal.hidden = false;
+    modal.classList.add('open');
+    errorNode.textContent = '';
+    userInput.value = '';
+    passInput.value = '';
+    userInput.focus();
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.hidden = true;
+  }
+
+  function doLogin() {
+    const userId = (userInput.value || '').trim();
+    const password = passInput.value || '';
+    if (userId === adminAuth.userId && password === adminAuth.password) {
+      setAdminMode(true);
+      closeModal();
+      return;
+    }
+    errorNode.textContent = 'Invalid user ID or password.';
+  }
+
+  toggleButton.addEventListener('click', () => {
+    if (isAdminLoggedIn()) {
+      setAdminMode(false);
+      return;
+    }
+    openModal();
+  });
+
+  cancelButton.addEventListener('click', closeModal);
+  submitButton.addEventListener('click', doLogin);
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+
+  passInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') doLogin();
+  });
+
+  setAdminMode(isAdminLoggedIn());
+}
+
+function formatAadhaar(value) {
+  const digits = (value || '').replace(/\D/g, '').slice(0, 12);
+  const parts = digits.match(/.{1,4}/g) || [];
+  return parts.join(' ');
+}
+
+function isValidAadhaar(value) {
+  return /^\d{4}\s\d{4}\s\d{4}$/.test((value || '').trim());
+}
+
+function getRegistrations() {
+  try {
+    const raw = window.localStorage.getItem(storageKeys.registrations);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveRegistrations(list) {
+  window.localStorage.setItem(storageKeys.registrations, JSON.stringify(list));
+}
+
+function getStatusLabel(status) {
+  if (status === 'approved') return 'Approved';
+  if (status === 'rejected') return 'Rejected';
+  return 'Pending';
+}
+
+function getApprovalCardClass(status) {
+  if (status === 'approved') return 'approval-card approval-card--approved';
+  if (status === 'rejected') return 'approval-card approval-card--rejected';
+  return 'approval-card approval-card--pending';
+}
+
+function renderApprovedTeams() {
+  const listNode = document.querySelector('[data-approved-teams-list]');
+  const emptyNode = document.querySelector('[data-approved-teams-empty]');
+  if (!listNode || !emptyNode) return;
+
+  const registrations = getRegistrations();
+  const slots = syncTeamSlotsWithRegistrations(registrations);
+  const byId = new Map(registrations.map((item) => [item.id, item]));
+
+  emptyNode.hidden = true;
+  listNode.innerHTML = slots
+    .map((slotId, index) => {
+      const slotNumber = index + 1;
+      const team = slotId ? byId.get(slotId) : null;
+
+      if (!team) {
+        return `
+          <article class="card team-roster-card team-roster-card--placeholder" data-team-slot="${slotNumber}" data-team-id="">
+            <p class="slot-label">Slot ${slotNumber}</p>
+            <h3>Team ${slotNumber}</h3>
+            <p>Not yet registered</p>
+          </article>
+        `;
+      }
+
+      return `
+        <article class="card team-roster-card team-roster-card--filled" data-team-slot="${slotNumber}" data-team-id="${team.id}">
+          <p class="slot-label">Slot ${slotNumber}</p>
+          <h3>${team.displayTeamName}</h3>
+          <p><strong>Location:</strong> ${team.teamLocation}</p>
+          <p><strong>Captain:</strong> ${team.captain?.name || '-'}</p>
+          <p><strong>Vice Captain:</strong> ${team.vc?.name || '-'}</p>
+        </article>
+      `;
+    })
+    .join('');
+}
+
+function setupTeamSlotDragAndDrop() {
+  const listNode = document.querySelector('[data-approved-teams-list]');
+  if (!listNode) return;
+
+  const statusNode = document.querySelector('[data-slot-dnd-status]');
+  let state = null;
+
+  function isAdmin() {
+    return window.localStorage.getItem(adminAuth.storageKey) === 'true';
+  }
+
+  function clearStatus() {
+    if (!statusNode) return;
+    statusNode.textContent = '';
+    statusNode.className = 'form-status';
+  }
+
+  function setStatus(message, type) {
+    if (!statusNode) return;
+    statusNode.textContent = message;
+    statusNode.className = `form-status ${type}`;
+  }
+
+  function setDropTarget(card) {
+    if (state?.targetCard === card) return;
+    if (state?.targetCard) state.targetCard.classList.remove('is-drop-target');
+    if (state && card) card.classList.add('is-drop-target');
+    if (state) state.targetCard = card || null;
+  }
+
+  function removeGhost() {
+    if (state?.ghost && state.ghost.parentNode) {
+      state.ghost.parentNode.removeChild(state.ghost);
+    }
+  }
+
+  function cleanup() {
+    if (!state) return;
+    if (state.sourceCard) state.sourceCard.classList.remove('is-drag-source');
+    if (state.targetCard) state.targetCard.classList.remove('is-drop-target');
+    removeGhost();
+    state = null;
+  }
+
+  function updateGhostPosition(clientX, clientY) {
+    if (!state?.ghost) return;
+    state.ghost.style.left = `${clientX + 12}px`;
+    state.ghost.style.top = `${clientY + 12}px`;
+  }
+
+  function findSlotCardAt(clientX, clientY) {
+    const hit = document.elementFromPoint(clientX, clientY);
+    const card = hit ? hit.closest('[data-team-slot]') : null;
+    if (!card || !listNode.contains(card)) return null;
+    return card;
+  }
+
+  listNode.addEventListener('pointerdown', (event) => {
+    const sourceCard = event.target.closest('[data-team-slot]');
+    if (!sourceCard || !listNode.contains(sourceCard)) return;
+    if (!isAdmin()) return;
+
+    const sourceId = sourceCard.getAttribute('data-team-id') || '';
+    if (!sourceId) {
+      setStatus('Only filled team cards can be dragged.', 'error');
+      return;
+    }
+
+    clearStatus();
+    state = {
+      pointerId: event.pointerId,
+      sourceCard,
+      sourceSlot: Number(sourceCard.getAttribute('data-team-slot')),
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+      targetCard: null,
+      ghost: null
+    };
+
+    if (typeof sourceCard.setPointerCapture === 'function') {
+      sourceCard.setPointerCapture(event.pointerId);
+    }
+  });
+
+  listNode.addEventListener('pointermove', (event) => {
+    if (!state || event.pointerId !== state.pointerId) return;
+
+    const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+    if (!state.dragging && distance > 8) {
+      state.dragging = true;
+      state.sourceCard.classList.add('is-drag-source');
+      const ghost = document.createElement('div');
+      ghost.className = 'team-drag-ghost';
+      ghost.textContent = state.sourceCard.querySelector('h3')?.textContent || 'Team';
+      document.body.appendChild(ghost);
+      state.ghost = ghost;
+    }
+
+    if (!state.dragging) return;
+    event.preventDefault();
+    updateGhostPosition(event.clientX, event.clientY);
+
+    const targetCard = findSlotCardAt(event.clientX, event.clientY);
+    if (!targetCard) {
+      setDropTarget(null);
+      return;
+    }
+
+    const targetSlot = Number(targetCard.getAttribute('data-team-slot'));
+    setDropTarget(targetSlot === state.sourceSlot ? null : targetCard);
+  });
+
+  function finalizeDrop(event) {
+    if (!state || event.pointerId !== state.pointerId) return;
+    const wasDragging = state.dragging;
+    const sourceSlot = state.sourceSlot;
+    let targetSlot = sourceSlot;
+
+    if (wasDragging) {
+      const targetCard = findSlotCardAt(event.clientX, event.clientY);
+      if (targetCard) {
+        const parsed = Number(targetCard.getAttribute('data-team-slot'));
+        if (!Number.isNaN(parsed)) targetSlot = parsed;
+      }
+    }
+
+    cleanup();
+
+    if (!wasDragging || sourceSlot === targetSlot) return;
+    swapTeamSlots(sourceSlot, targetSlot);
+    renderApprovedTeams();
+    buildFixtures();
+    setStatus(`Swapped Slot ${sourceSlot} with Slot ${targetSlot}.`, 'success');
+  }
+
+  listNode.addEventListener('pointerup', finalizeDrop);
+  listNode.addEventListener('pointercancel', cleanup);
+}
+
+function renderTeamApprovalCards() {
+  const listNode = document.querySelector('[data-team-approvals-list]');
+  const emptyNode = document.querySelector('[data-team-approvals-empty]');
+  if (!listNode || !emptyNode) return;
+
+  const registrations = getRegistrations();
+  if (!registrations.length) {
+    listNode.innerHTML = '';
+    emptyNode.hidden = false;
+    return;
+  }
+
+  emptyNode.hidden = true;
+  listNode.innerHTML = registrations
+    .map(
+      (item, index) => `
+        <article class="${getApprovalCardClass(item.status)}">
+          <button type="button" class="approval-remove-btn admin-only" data-team-remove="${index}" aria-label="Remove ${item.displayTeamName}">×</button>
+          <h4>${item.displayTeamName}</h4>
+          <p>Base team: ${item.teamName}</p>
+          <p>Location: ${item.teamLocation}</p>
+          <p>Status: ${getStatusLabel(item.status)}</p>
+          <button type="button" class="btn btn-secondary" data-team-view="${index}">View Details</button>
+        </article>
+      `
+    )
+    .join('');
+}
+
+function setupTeamDetailModal() {
+  const modal = document.querySelector('[data-team-modal]');
+  const detailBody = document.querySelector('[data-team-detail-body]');
+  const closeButton = document.querySelector('[data-team-close]');
+  const actionWrap = modal ? modal.querySelector('.admin-modal-actions') : null;
+  const approvalsList = document.querySelector('[data-team-approvals-list]');
+  if (!modal || !detailBody || !closeButton || !approvalsList || !actionWrap) return;
+
+  const removeModal = document.createElement('div');
+  removeModal.className = 'admin-modal';
+  removeModal.setAttribute('data-team-remove-modal', '');
+  removeModal.hidden = true;
+  removeModal.innerHTML = `
+    <div class="admin-modal-card" role="dialog" aria-modal="true" aria-label="Confirm team removal">
+      <h3>Remove Team</h3>
+      <p data-team-remove-message>Confirm remove this team out of the tournament?</p>
+      <div class="admin-modal-actions">
+        <button type="button" class="btn btn-secondary" data-team-remove-no>No</button>
+        <button type="button" class="btn btn-danger" data-team-remove-yes>Yes, Remove</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(removeModal);
+
+  const removeMessage = removeModal.querySelector('[data-team-remove-message]');
+  const removeNoButton = removeModal.querySelector('[data-team-remove-no]');
+  const removeYesButton = removeModal.querySelector('[data-team-remove-yes]');
+  let pendingRemoveIndex = null;
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.hidden = true;
+  }
+
+  function openRemoveModal(index, teamName) {
+    pendingRemoveIndex = index;
+    if (removeMessage) {
+      removeMessage.textContent = `Confirm remove ${teamName} out of the tournament?`;
+    }
+    removeModal.hidden = false;
+    removeModal.classList.add('open');
+  }
+
+  function closeRemoveModal() {
+    pendingRemoveIndex = null;
+    removeModal.classList.remove('open');
+    removeModal.hidden = true;
+  }
+
+  approvalsList.addEventListener('click', (event) => {
+    const removeTrigger = event.target.closest('[data-team-remove]');
+    if (removeTrigger) {
+      const registrations = getRegistrations();
+      const index = Number(removeTrigger.getAttribute('data-team-remove'));
+      const entry = registrations[index];
+      if (!entry) return;
+      openRemoveModal(index, entry.displayTeamName || entry.teamName || 'this team');
+      return;
+    }
+
+    const trigger = event.target.closest('[data-team-view]');
+    if (!trigger) return;
+
+    const registrations = getRegistrations();
+    const index = Number(trigger.getAttribute('data-team-view'));
+    const entry = registrations[index];
+    if (!entry) return;
+    modal.setAttribute('data-team-index', String(index));
+
+    const mandatoryPlayers = entry.mandatoryPlayers
+      .map(
+        (p) => `
+          <div class="team-detail-row"><span>${p.label}</span><span>${p.name} - ${p.aadhaar}</span></div>
+        `
+      )
+      .join('');
+
+    const substitutes = entry.substitutePlayers
+      .filter((p) => p.name || p.aadhaar)
+      .map(
+        (p) => `
+          <div class="team-detail-row"><span>${p.label}</span><span>${p.name || '-'} - ${p.aadhaar || '-'}</span></div>
+        `
+      )
+      .join('');
+
+    detailBody.innerHTML = `
+      <section class="team-detail-group">
+        <h4>Team Info</h4>
+        <div class="team-detail-row"><span>Display Team Name</span><span>${entry.displayTeamName}</span></div>
+        <div class="team-detail-row"><span>Base Team Name</span><span>${entry.teamName}</span></div>
+        <div class="team-detail-row"><span>Team Location</span><span>${entry.teamLocation}</span></div>
+        <div class="team-detail-row"><span>Status</span><span>${getStatusLabel(entry.status)}</span></div>
+      </section>
+
+      <section class="team-detail-group">
+        <h4>Captain</h4>
+        <div class="team-detail-row"><span>Name</span><span>${entry.captain.name}</span></div>
+        <div class="team-detail-row"><span>Phone</span><span>${entry.captain.phone}</span></div>
+        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.captain.aadhaar}</span></div>
+      </section>
+
+      <section class="team-detail-group">
+        <h4>Vice Captain</h4>
+        <div class="team-detail-row"><span>Name</span><span>${entry.vc.name}</span></div>
+        <div class="team-detail-row"><span>Phone</span><span>${entry.vc.phone}</span></div>
+        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.vc.aadhaar}</span></div>
+      </section>
+
+      <section class="team-detail-group">
+        <h4>Playing XI (3-11)</h4>
+        ${mandatoryPlayers}
+      </section>
+
+      <section class="team-detail-group">
+        <h4>Substitutes (Optional)</h4>
+        ${substitutes || '<div class="team-detail-row"><span>Info</span><span>No substitute details added.</span></div>'}
+      </section>
+    `;
+
+    const approvedCount = registrations.filter((item) => item.status === 'approved').length;
+    const approvalLimitReached = entry.status !== 'approved' && approvedCount >= tournament.teams;
+    const canApprove = entry.status !== 'approved' && !approvalLimitReached;
+    const canReject = entry.status !== 'rejected';
+    actionWrap.innerHTML = `
+      <button type="button" class="btn btn-secondary" data-team-close>Close</button>
+      <button type="button" class="btn btn-success" data-team-approve ${canApprove ? '' : 'disabled'}>Approve</button>
+      <button type="button" class="btn btn-danger" data-team-reject ${canReject ? '' : 'disabled'}>Reject</button>
+      <p class="form-status ${approvalLimitReached ? 'error' : ''}" data-team-action-status>
+        ${approvalLimitReached ? `Approval limit reached. Only ${tournament.teams} teams can be approved.` : ''}
+      </p>
+    `;
+
+    const dynamicClose = actionWrap.querySelector('[data-team-close]');
+    if (dynamicClose) {
+      dynamicClose.addEventListener('click', closeModal);
+    }
+
+    modal.hidden = false;
+    modal.classList.add('open');
+  });
+
+  actionWrap.addEventListener('click', (event) => {
+    const approveButton = event.target.closest('[data-team-approve]');
+    const rejectButton = event.target.closest('[data-team-reject]');
+    if (!approveButton && !rejectButton) return;
+
+    const actionStatus = actionWrap.querySelector('[data-team-action-status]');
+
+    const index = Number(modal.getAttribute('data-team-index'));
+    if (Number.isNaN(index)) return;
+
+    const registrations = getRegistrations();
+    if (!registrations[index]) return;
+
+    if (approveButton) {
+      const approvedCount = registrations.filter((item) => item.status === 'approved').length;
+      const entry = registrations[index];
+      const isAlreadyApproved = entry.status === 'approved';
+      if (!isAlreadyApproved && approvedCount >= tournament.teams) {
+        if (actionStatus) {
+          actionStatus.textContent = `Cannot approve more than ${tournament.teams} teams.`;
+          actionStatus.className = 'form-status error';
+        }
+        return;
+      }
+    }
+
+    registrations[index].status = approveButton ? 'approved' : 'rejected';
+    saveRegistrations(registrations);
+    syncTeamSlotsWithRegistrations(registrations);
+    renderTeamApprovalCards();
+    renderApprovedTeams();
+    buildFixtures();
+    closeModal();
+  });
+
+  if (removeNoButton) {
+    removeNoButton.addEventListener('click', closeRemoveModal);
+  }
+
+  if (removeYesButton) {
+    removeYesButton.addEventListener('click', () => {
+      if (pendingRemoveIndex === null) return;
+
+      const registrations = getRegistrations();
+      const removed = registrations[pendingRemoveIndex];
+      if (!removed) {
+        closeRemoveModal();
+        return;
+      }
+
+      registrations.splice(pendingRemoveIndex, 1);
+      saveRegistrations(registrations);
+      removeTeamFromTournamentData(removed.id);
+
+      renderTeamApprovalCards();
+      renderApprovedTeams();
+      buildFixtures();
+      closeModal();
+      closeRemoveModal();
+    });
+  }
+
+  removeModal.addEventListener('click', (event) => {
+    if (event.target === removeModal) closeRemoveModal();
+  });
+
+  closeButton.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+}
+
+function setupRegistrationForm() {
+  const form = document.querySelector('[data-register-form]');
+  if (!form) return;
+
+  const mandatoryList = form.querySelector('[data-players-mandatory]');
+  const substituteList = form.querySelector('[data-players-substitute]');
+  const statusNode = form.querySelector('[data-form-status]');
+
+  if (mandatoryList) {
+    mandatoryList.innerHTML = Array.from({ length: 9 }, (_, i) => {
+      const playerNo = i + 3;
+      return `
+        <div class="player-row">
+          <strong>Player ${playerNo}</strong>
+          <div class="input-wrap">
+            <input type="text" name="player${playerNo}Name" required placeholder="Player ${playerNo} name" />
+            <span class="field-error" data-field-error></span>
+          </div>
+          <div class="input-wrap">
+            <input type="text" name="player${playerNo}Aadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+            <span class="field-error" data-field-error></span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (substituteList) {
+    substituteList.innerHTML = Array.from({ length: 5 }, (_, i) => {
+      const subNo = i + 1;
+      return `
+        <div class="player-row">
+          <strong>Substitute ${subNo}</strong>
+          <div class="input-wrap">
+            <input type="text" name="sub${subNo}Name" placeholder="Substitute ${subNo} name" />
+            <span class="field-error" data-field-error></span>
+          </div>
+          <div class="input-wrap">
+            <input type="text" name="sub${subNo}Aadhaar" data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+            <span class="field-error" data-field-error></span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function ensureFieldErrorNode(input) {
+    const wrap = input.closest('.input-wrap');
+    if (wrap) {
+      const node = wrap.querySelector('[data-field-error]');
+      if (node) return node;
+      const created = document.createElement('span');
+      created.className = 'field-error';
+      created.setAttribute('data-field-error', '');
+      wrap.appendChild(created);
+      return created;
+    }
+
+    const label = input.closest('label');
+    if (label) {
+      const node = label.querySelector('[data-field-error]');
+      if (node) return node;
+      const created = document.createElement('span');
+      created.className = 'field-error';
+      created.setAttribute('data-field-error', '');
+      label.appendChild(created);
+      return created;
+    }
+
+    return null;
+  }
+
+  function getFieldLabel(input) {
+    const label = input.closest('label');
+    if (label) {
+      const raw = label.childNodes[0] ? String(label.childNodes[0].textContent || '') : '';
+      return raw.replace('*', '').trim() || input.name;
+    }
+
+    const row = input.closest('.player-row');
+    if (row) {
+      const rowTitle = row.querySelector('strong')?.textContent?.trim() || 'Player';
+      const isAadhaar = /aadhaar/i.test(input.name);
+      return isAadhaar ? `${rowTitle} Aadhaar` : `${rowTitle} Name`;
+    }
+
+    return input.name || 'Field';
+  }
+
+  function setFieldError(input, message) {
+    const errorNode = ensureFieldErrorNode(input);
+    input.classList.add('invalid');
+    input.setAttribute('aria-invalid', 'true');
+    if (errorNode) errorNode.textContent = message;
+  }
+
+  function clearFieldError(input) {
+    const errorNode = ensureFieldErrorNode(input);
+    input.classList.remove('invalid');
+    input.removeAttribute('aria-invalid');
+    if (errorNode) errorNode.textContent = '';
+  }
+
+  function clearAllFieldErrors() {
+    form.querySelectorAll('input').forEach((input) => clearFieldError(input));
+  }
+
+  function validateRegistrationForm() {
+    const errors = [];
+    const requiredInputs = Array.from(form.querySelectorAll('input[required]'));
+
+    requiredInputs.forEach((input) => {
+      if (input.hasAttribute('data-aadhaar')) return;
+      const value = (input.value || '').trim();
+      if (!value) {
+        errors.push({ input, message: `${getFieldLabel(input)} is required.` });
+      }
+    });
+
+    const phoneInputs = Array.from(form.querySelectorAll('input[name$="Phone"]'));
+    phoneInputs.forEach((input) => {
+      const value = (input.value || '').trim();
+      if (!value) return;
+      if (!/^\d{10}$/.test(value)) {
+        errors.push({ input, message: `${getFieldLabel(input)} must be exactly 10 digits.` });
+      }
+    });
+
+    const aadhaarInputs = Array.from(form.querySelectorAll('input[data-aadhaar]'));
+    aadhaarInputs.forEach((input) => {
+      const value = (input.value || '').trim();
+      const subMatch = input.name.match(/^sub(\d+)Aadhaar$/);
+
+      if (subMatch) {
+        const subNameInput = form.querySelector(`[name="sub${subMatch[1]}Name"]`);
+        const hasSubName = !!(subNameInput && (subNameInput.value || '').trim());
+
+        if (hasSubName && !value) {
+          errors.push({ input, message: `${getFieldLabel(input)} is required when substitute name is entered.` });
+          return;
+        }
+
+        if (value && !isValidAadhaar(value)) {
+          errors.push({ input, message: `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.` });
+        }
+        return;
+      }
+
+      if (!value) {
+        errors.push({ input, message: `${getFieldLabel(input)} is required.` });
+        return;
+      }
+
+      if (!isValidAadhaar(value)) {
+        errors.push({ input, message: `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.` });
+      }
+    });
+
+    return errors;
+  }
+
+  form.querySelectorAll('input').forEach((input) => ensureFieldErrorNode(input));
+
+  form.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.hasAttribute('data-aadhaar')) {
+      target.value = formatAadhaar(target.value);
+    }
+    if (/Phone$/.test(target.name || '')) {
+      target.value = target.value.replace(/\D/g, '').slice(0, 10);
+    }
+    clearFieldError(target);
+  });
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    clearAllFieldErrors();
+    if (statusNode) {
+      statusNode.textContent = '';
+      statusNode.className = 'form-status';
+    }
+
+    const errors = validateRegistrationForm();
+    if (errors.length) {
+      const handled = new Set();
+      errors.forEach(({ input, message }) => {
+        if (handled.has(input)) return;
+        handled.add(input);
+        setFieldError(input, message);
+      });
+
+      if (statusNode) {
+        statusNode.textContent = 'Please fix the highlighted fields.';
+        statusNode.classList.add('error');
+      }
+
+      const firstInput = errors[0].input;
+      if (firstInput && typeof firstInput.focus === 'function') firstInput.focus();
+      return;
+    }
+
+    const formData = new FormData(form);
+    const teamName = String(formData.get('teamName') || '').trim();
+    const registrations = getRegistrations();
+    const sameTeamCount = registrations.filter((r) => (r.teamName || '').toLowerCase() === teamName.toLowerCase()).length;
+    const displayTeamName = sameTeamCount ? `${teamName} ${sameTeamCount + 1}` : teamName;
+
+    const mandatoryPlayers = Array.from({ length: 9 }, (_, i) => {
+      const playerNo = i + 3;
+      return {
+        label: `Player ${playerNo}`,
+        name: String(formData.get(`player${playerNo}Name`) || '').trim(),
+        aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim()
+      };
+    });
+
+    const substitutePlayers = Array.from({ length: 5 }, (_, i) => {
+      const subNo = i + 1;
+      return {
+        label: `Substitute ${subNo}`,
+        name: String(formData.get(`sub${subNo}Name`) || '').trim(),
+        aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim()
+      };
+    });
+
+    const record = {
+      id: `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      teamName,
+      displayTeamName,
+      teamLocation: String(formData.get('teamLocation') || '').trim(),
+      captain: {
+        name: String(formData.get('captainName') || '').trim(),
+        phone: String(formData.get('captainPhone') || '').trim(),
+        aadhaar: String(formData.get('captainAadhaar') || '').trim()
+      },
+      vc: {
+        name: String(formData.get('vcName') || '').trim(),
+        phone: String(formData.get('vcPhone') || '').trim(),
+        aadhaar: String(formData.get('vcAadhaar') || '').trim()
+      },
+      mandatoryPlayers,
+      substitutePlayers
+    };
+
+    registrations.push(record);
+    saveRegistrations(registrations);
+    renderTeamApprovalCards();
+    renderApprovedTeams();
+
+    if (statusNode) {
+      statusNode.textContent = `Registration submitted successfully as ${displayTeamName}.`;
+      statusNode.classList.add('success');
+    }
+
+    form.reset();
+  });
+
+  renderTeamApprovalCards();
+  renderApprovedTeams();
+  setupTeamDetailModal();
+}
+
+fillCommonData();
+buildCounts();
+buildOrganizers();
+buildFixtures();
+buildAwards();
+buildResultsPage();
+setupCountdown();
+setupScrollReveal();
+setupRedirectPage();
+highlightCurrentNav();
+setupBackToTop();
+setupAdminLogin();
+setupRegistrationForm();
+renderApprovedTeams();
+setupTeamSlotDragAndDrop();
+setupFixtureWinnerSelection();
+setupResultsAdminEditing();

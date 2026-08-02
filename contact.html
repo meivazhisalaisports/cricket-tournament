@@ -1,0 +1,115 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>MSVL 2026 | About & Contact</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>
+    .org-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+    .org-card{padding:20px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
+    .org-card h3{margin:0 0 6px;font-size:1rem}
+    .org-card a{color:var(--gold-2);font-size:.95rem}
+    .prize-row{display:flex;align-items:center;gap:16px;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);margin-bottom:8px}
+    .prize-pos{font-family:'Orbitron',sans-serif;font-size:.8rem;color:var(--muted);min-width:60px}
+    .prize-amt{font-family:'Orbitron',sans-serif;font-size:1.15rem;color:var(--gold-2)}
+    .prize-row:first-child{border-color:rgba(244,197,66,.35);background:rgba(244,197,66,.07)}
+    .sponsor-placeholder{border:2px dashed rgba(255,255,255,.12);border-radius:20px;padding:40px;text-align:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+<canvas id="confetti-canvas" aria-hidden="true"></canvas>
+<div id="matchday-banner" style="display:none">🏏 IT'S MATCH DAY! MSVL 2026 IS LIVE! 🎉</div>
+<header class="navbar"><div class="container navbar-inner">
+  <a class="brand" href="index.html"><div class="brand-mark">🏏</div><div><p class="brand-title">MSVL 2026</p><p class="brand-subtitle">About</p></div></a>
+  <nav class="nav-links">
+    <a href="index.html" data-nav-link>Home</a>
+    <a href="register.html" data-nav-link>Register</a>
+    <a href="teams.html" data-nav-link>Teams</a>
+    <a href="fixtures.html" data-nav-link>Fixtures</a>
+    <a href="results.html" data-nav-link>Results</a>
+    <a href="live-score.html" data-nav-link>Live Score</a>
+    <a href="contact.html" data-nav-link>About</a>
+  </nav>
+</div></header>
+<main>
+  <section class="page-banner"><div class="container fade-up">
+    <div class="badge">MSVL 2026</div>
+    <h1>About the Tournament</h1>
+    <p>All details about the Meivazhi Salai Village League 2026 — venue, organizers, prizes, and sponsors.</p>
+  </div></section>
+
+  <section class="section"><div class="container" data-reveal>
+    <div class="grid-3">
+      <article class="card"><h3>Tournament</h3>
+        <p>Meivazhi Salai Village League 2026</p>
+        <div class="pill-row"><span class="pill">Knockout</span><span class="pill">16 Teams</span><span class="pill">8+8 Overs</span></div>
+      </article>
+      <article class="card"><h3>Dates</h3>
+        <p style="font-family:'Orbitron',sans-serif;font-size:1.1rem;color:var(--gold-2)">Aug 28, 29, 30</p>
+        <p>Three days of knockout cricket action.</p>
+      </article>
+      <article class="card"><h3>Venue</h3>
+        <p>Koothini Patti Road, Meivazhi Salai</p>
+        <p>Keelakuruchi Post, Iluppur Taluk</p>
+        <p>Pudukottai — 622101</p>
+      </article>
+    </div>
+  </div></section>
+
+  <section class="section"><div class="container" data-reveal>
+    <h2 class="section-title">Prize Pool</h2>
+    <div style="max-width:480px">
+      <div class="prize-row"><span class="prize-pos">1st Place</span><span class="prize-amt">₹1,00,000</span></div>
+      <div class="prize-row"><span class="prize-pos">2nd Place</span><span class="prize-amt">₹80,000</span></div>
+      <div class="prize-row"><span class="prize-pos">3rd Place</span><span class="prize-amt">₹50,000</span></div>
+      <div class="prize-row"><span class="prize-pos">4th Place</span><span class="prize-amt">₹30,000</span></div>
+      <div class="prize-row"><span class="prize-pos">5th Place</span><span class="prize-amt">₹20,000</span></div>
+    </div>
+    <p style="margin-top:12px;color:var(--muted);font-size:.88rem">Individual awards: Man of the Match, Batsman of the Series, Bowler of the Series, Fielder of the Series + Trophies &amp; Medals.</p>
+  </div></section>
+
+  <section class="section"><div class="container" data-reveal>
+    <h2 class="section-title">Organizers</h2>
+    <div class="org-grid">
+      <div class="org-card"><h3>Salai Piriyadharshan</h3><a href="tel:9751495916">9751495916</a></div>
+      <div class="org-card"><h3>Salai Gavanamani</h3><a href="tel:9159973352">9159973352</a></div>
+      <div class="org-card"><h3>Salai Gnana Sudhan</h3><a href="tel:9943831939">9943831939</a></div>
+      <div class="org-card"><h3>Salai Keshava Moorthy</h3><a href="tel:9789871237">9789871237</a></div>
+    </div>
+    <div class="card" style="margin-top:16px;padding:18px">
+      <p style="margin:0">📧 Email: <a href="mailto:meivazhisalaisports@gmail.com" style="color:var(--gold-2)">meivazhisalaisports@gmail.com</a></p>
+    </div>
+  </div></section>
+
+  <section class="section"><div class="container" data-reveal>
+    <h2 class="section-title">Location</h2>
+    <div class="grid-2">
+      <article class="card" style="padding:20px">
+        <h3>Address</h3>
+        <p>Koothini Patti Road<br>Meivazhi Salai<br>Keelakuruchi Post<br>Iluppur Taluk<br>Pudukottai — 622101</p>
+        <a href="https://maps.google.com/?q=Meivazhi+Salai+Pudukottai" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-top:14px;display:inline-flex">Open in Maps →</a>
+      </article>
+      <article class="card" style="padding:0;overflow:hidden">
+        <iframe src="https://www.google.com/maps?q=Meivazhi+Salai,+Keelakuruchi+Post,+Iluppur+Taluk,+Pudukottai+622101&output=embed"
+          title="MSVL venue map" style="width:100%;height:320px;border:0" loading="lazy"></iframe>
+      </article>
+    </div>
+  </div></section>
+
+  <section class="section"><div class="container" data-reveal>
+    <h2 class="section-title">Sponsors</h2>
+    <div class="sponsor-placeholder">
+      <p style="font-size:1.5rem;margin:0 0 10px">🤝</p>
+      <p style="margin:0;font-weight:600">Sponsor details coming soon</p>
+      <p style="margin:6px 0 0;font-size:.85rem">Contact us at meivazhisalaisports@gmail.com to become a sponsor.</p>
+    </div>
+  </div></section>
+</main>
+<footer class="footer"><div class="container footer-inner">
+  <div><strong>MSVL 2026</strong> · meivazhisalaisports@gmail.com</div>
+  <a href="index.html" class="btn btn-secondary" style="font-size:.85rem">← Home</a>
+</div></footer>
+<button class="back-top" type="button" data-back-top>↑</button>
+<script src="config.js"></script><script src="admin.js"></script><script src="script.js"></script>
+</body></html>

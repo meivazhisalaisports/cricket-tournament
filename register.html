@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Redirect to MSVL team registration form." />
+  <title>MSVL 2026 | Register Team</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="navbar">
+      <div class="container navbar-inner">
+        <a class="brand" href="index.html"><div class="brand-mark" aria-hidden="true">🏏</div><div><p class="brand-title">MSVL 2026</p><p class="brand-subtitle">Register Team</p></div></a>
+        <nav class="nav-links">
+          <a href="index.html" data-nav-link>Home</a>
+          <a href="register.html" data-nav-link>Register</a>
+          <a href="teams.html" data-nav-link>Teams</a>
+          <a href="fixtures.html" data-nav-link>Fixtures</a>
+          <a href="results.html" data-nav-link>Results</a>
+          <a href="live-score.html" data-nav-link>Live Score</a>
+          <a href="contact.html" data-nav-link>About</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <div>
+              <h1 class="section-title">Team Registration</h1>
+              <p class="section-note">Registration deadline is on or before 15 Aug 2026. Aadhaar format must be xxxx xxxx xxxx.</p>
+            </div>
+          </div>
+
+          <form class="card registration-form" data-register-form novalidate>
+            <div class="form-grid form-grid-2">
+              <label>Team Name*
+                <input type="text" name="teamName" required placeholder="Enter team name" />
+              </label>
+              <label>Team Location*
+                <input type="text" name="teamLocation" required placeholder="Enter team location" />
+              </label>
+            </div>
+
+            <h3>Captain Details (Player 1)</h3>
+            <div class="form-grid form-grid-3">
+              <label>Captain Name*
+                <input type="text" name="captainName" required placeholder="Captain full name" />
+              </label>
+              <label>Captain Phone*
+                <input type="tel" name="captainPhone" required inputmode="numeric" pattern="[0-9]{10}" placeholder="10 digit phone" />
+              </label>
+              <label>Captain Aadhaar*
+                <input type="text" name="captainAadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+              </label>
+            </div>
+
+            <h3>Vice Captain Details (Player 2)</h3>
+            <div class="form-grid form-grid-3">
+              <label>Vice Captain Name*
+                <input type="text" name="vcName" required placeholder="Vice captain full name" />
+              </label>
+              <label>Vice Captain Phone*
+                <input type="tel" name="vcPhone" required inputmode="numeric" pattern="[0-9]{10}" placeholder="10 digit phone" />
+              </label>
+              <label>Vice Captain Aadhaar*
+                <input type="text" name="vcAadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+              </label>
+            </div>
+
+            <h3>Playing XI (Players 3 to 11) - Mandatory</h3>
+            <div class="player-list" data-players-mandatory></div>
+
+            <h3>Substitutes 1 to 5 - Optional</h3>
+            <div class="player-list" data-players-substitute></div>
+
+            <p class="form-note">All mandatory fields marked with * are required. Aadhaar must be 12 digits in xxxx xxxx xxxx format.</p>
+            <p class="form-status" data-form-status></p>
+            <div class="form-actions">
+              <button type="reset" class="btn btn-secondary">Reset</button>
+              <button type="submit" class="btn btn-primary">Submit Registration</button>
+            </div>
+          </form>
+
+          <section class="section admin-only" data-admin-approval-section>
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">Teams for Approval</h2>
+                <p class="section-note">Visible only in admin mode. Latest submissions are listed below for review.</p>
+              </div>
+            </div>
+            <div class="card">
+              <p class="form-note" data-team-approvals-empty>No teams has been registered.</p>
+              <div class="approval-grid" data-team-approvals-list></div>
+            </div>
+          </section>
+
+          <div class="admin-modal" data-team-modal hidden>
+            <div class="admin-modal-card" role="dialog" aria-modal="true" aria-label="Team details">
+              <h3>Team Registration Details</h3>
+              <div class="team-detail-body" data-team-detail-body></div>
+              <div class="admin-modal-actions">
+                <button type="button" class="btn btn-secondary" data-team-close>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
