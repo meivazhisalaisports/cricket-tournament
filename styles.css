@@ -1864,11 +1864,12 @@ td {
 
   .intro-wicket {
     width: min(82vw, 320px);
-    height: clamp(280px, 54vh, 360px);
+    height: calc(var(--stump-h) + 22px);
     bottom: 14%;
     --stump-w: clamp(22px, 6.8vw, 30px);
-    --stump-h: clamp(190px, 33vh, 270px);
+    --stump-h: clamp(180px, 52vw, 248px);
     --stump-gap: clamp(8px, 1.8vw, 12px);
+    --bail-h: clamp(10px, 2.8vw, 14px);
   }
 
   .intro-wicket .stump {
@@ -1877,17 +1878,19 @@ td {
   }
 
   .intro-wicket .bail {
-    top: max(6px, calc(100% - var(--stump-h) - 4px));
+    top: calc((100% - var(--stump-h)) - 4px);
     width: calc(var(--stump-w) + (var(--stump-gap) * 0.95));
-    height: clamp(10px, 1.8vh, 14px);
+    height: var(--bail-h);
   }
 
   .intro-wicket .bail-left {
     left: calc(var(--stump-w) - (var(--stump-gap) * 0.15));
+    animation: bailLeftFly 0.68s ease 1.08s both;
   }
 
   .intro-wicket .bail-right {
     right: calc(var(--stump-w) - (var(--stump-gap) * 0.15));
+    animation: bailRightFly 0.68s ease 1.08s both;
   }
 
   .nav-links a {
