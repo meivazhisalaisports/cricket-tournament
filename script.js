@@ -141,6 +141,7 @@ function parseCloudRegistrations(rows) {
         teamLocation: String(details.teamLocation || '').trim(),
         captain: details.captain && typeof details.captain === 'object' ? details.captain : captainFromRow,
         vc: details.vc && typeof details.vc === 'object' ? details.vc : { name: '', phone: '', aadhaar: '' },
+        transactionId: String(details.transactionId || row.transactionId || '').trim(),
         mandatoryPlayers: Array.isArray(details.mandatoryPlayers) ? details.mandatoryPlayers : [],
         substitutePlayers: Array.isArray(details.substitutePlayers) ? details.substitutePlayers : []
       };
@@ -1559,6 +1560,11 @@ function setupTeamDetailModal() {
       </section>
 
       <section class="team-detail-group">
+        <h4>Payment</h4>
+        <div class="team-detail-row"><span>Transaction ID</span><span>${entry.transactionId || '-'}</span></div>
+      </section>
+
+      <section class="team-detail-group">
         <h4>Playing XI (3-11)</h4>
         ${mandatoryPlayers}
       </section>
@@ -1828,6 +1834,18 @@ function setupRegistrationForm() {
       }
     });
 
+    const transactionIdInput = form.querySelector('input[name="transactionId"]');
+    if (transactionIdInput) {
+      const transactionId = String(transactionIdInput.value || '').trim();
+      if (!transactionId) {
+        addError(transactionIdInput, 'Transaction ID is required.');
+      } else if (transactionId.length < 10 || transactionId.length > 30) {
+        addError(transactionIdInput, 'Transaction ID must be between 10 and 30 characters.');
+      } else if (!/^[A-Za-z0-9_-]+$/.test(transactionId)) {
+        addError(transactionIdInput, 'Transaction ID must contain only letters, numbers, underscore, or hyphen.');
+      }
+    }
+
     const aadhaarInputs = Array.from(form.querySelectorAll('input[data-aadhaar]'));
     aadhaarInputs.forEach((input) => {
       const value = (input.value || '').trim();
@@ -1987,6 +2005,20 @@ function setupRegistrationForm() {
       };
     });
 
+    const transactionId = String(formData.get('transactionId') || '').trim();
+    if (!transactionId || transactionId.length < 10 || transactionId.length > 30 || !/^[A-Za-z0-9_-]+$/.test(transactionId)) {
+      const transactionIdInput = form.querySelector('input[name="transactionId"]');
+      if (transactionIdInput) {
+        setFieldError(transactionIdInput, 'Enter a valid Transaction ID (10-30 chars).');
+        transactionIdInput.focus();
+      }
+      if (statusNode) {
+        statusNode.textContent = 'Please fix the highlighted fields.';
+        statusNode.classList.add('error');
+      }
+      return;
+    }
+
     const invalidSubNoName = substitutePlayers.find((player) => player.aadhaar && !player.name);
     if (invalidSubNoName) {
       const subNo = Number(String(invalidSubNoName.label || '').replace(/\D/g, ''));
@@ -2034,6 +2066,7 @@ function setupRegistrationForm() {
         phone: String(formData.get('vcPhone') || '').trim(),
         aadhaar: String(formData.get('vcAadhaar') || '').trim()
       },
+      transactionId,
       mandatoryPlayers,
       substitutePlayers
     };
