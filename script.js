@@ -1987,6 +1987,36 @@ function setupRegistrationForm() {
       };
     });
 
+    const invalidSubNoName = substitutePlayers.find((player) => player.aadhaar && !player.name);
+    if (invalidSubNoName) {
+      const subNo = Number(String(invalidSubNoName.label || '').replace(/\D/g, ''));
+      const subNameInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Name"]`) : null;
+      if (subNameInput) {
+        setFieldError(subNameInput, 'Substitute name is required when Aadhaar is entered.');
+        subNameInput.focus();
+      }
+      if (statusNode) {
+        statusNode.textContent = 'Please fix the highlighted fields.';
+        statusNode.classList.add('error');
+      }
+      return;
+    }
+
+    const invalidSubNoAadhaar = substitutePlayers.find((player) => player.name && !player.aadhaar);
+    if (invalidSubNoAadhaar) {
+      const subNo = Number(String(invalidSubNoAadhaar.label || '').replace(/\D/g, ''));
+      const subAadhaarInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Aadhaar"]`) : null;
+      if (subAadhaarInput) {
+        setFieldError(subAadhaarInput, 'Substitute Aadhaar is required when name is entered.');
+        subAadhaarInput.focus();
+      }
+      if (statusNode) {
+        statusNode.textContent = 'Please fix the highlighted fields.';
+        statusNode.classList.add('error');
+      }
+      return;
+    }
+
     const record = {
       id: `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       createdAt: new Date().toISOString(),
