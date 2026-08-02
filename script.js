@@ -1461,13 +1461,50 @@ function setupRegistrationForm() {
 
   function validateRegistrationForm() {
     const errors = [];
+    const errorInputs = new Set();
+
+    function addError(input, message) {
+      if (errorInputs.has(input)) return;
+      errorInputs.add(input);
+      errors.push({ input, message });
+    }
+
+    function aadhaarDigits(value) {
+      return String(value || '').replace(/\D/g, '');
+    }
+
+    function getAadhaarOwnerName(input) {
+      const nameToAadhaar = {
+        captainAadhaar: 'captainName',
+        vcAadhaar: 'vcName'
+      };
+
+      let nameInput = null;
+      if (nameToAadhaar[input.name]) {
+        nameInput = form.querySelector(`[name="${nameToAadhaar[input.name]}"]`);
+      } else {
+        const playerMatch = input.name.match(/^player(\d+)Aadhaar$/);
+        const subMatch = input.name.match(/^sub(\d+)Aadhaar$/);
+        if (playerMatch) {
+          nameInput = form.querySelector(`[name="player${playerMatch[1]}Name"]`);
+        } else if (subMatch) {
+          nameInput = form.querySelector(`[name="sub${subMatch[1]}Name"]`);
+        }
+      }
+
+      const enteredName = nameInput ? String(nameInput.value || '').trim() : '';
+      if (enteredName) return enteredName;
+      return getFieldLabel(input).replace(/\s*Aadhaar$/i, '').trim();
+    }
+
     const requiredInputs = Array.from(form.querySelectorAll('input[required]'));
+    const validAadhaarEntries = [];
 
     requiredInputs.forEach((input) => {
       if (input.hasAttribute('data-aadhaar')) return;
       const value = (input.value || '').trim();
       if (!value) {
-        errors.push({ input, message: `${getFieldLabel(input)} is required.` });
+        addError(input, `${getFieldLabel(input)} is required.`);
       }
     });
 
@@ -1476,7 +1513,7 @@ function setupRegistrationForm() {
       const value = (input.value || '').trim();
       if (!value) return;
       if (!/^\d{10}$/.test(value)) {
-        errors.push({ input, message: `${getFieldLabel(input)} must be exactly 10 digits.` });
+        addError(input, `${getFieldLabel(input)} must be exactly 10 digits.`);
       }
     });
 
@@ -1490,24 +1527,80 @@ function setupRegistrationForm() {
         const hasSubName = !!(subNameInput && (subNameInput.value || '').trim());
 
         if (hasSubName && !value) {
-          errors.push({ input, message: `${getFieldLabel(input)} is required when substitute name is entered.` });
+          addError(input, `${getFieldLabel(input)} is required when substitute name is entered.`);
           return;
         }
 
         if (value && !isValidAadhaar(value)) {
-          errors.push({ input, message: `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.` });
+          addError(input, `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.`);
+          return;
+        }
+
+        if (value && isValidAadhaar(value)) {
+          validAadhaarEntries.push({
+            input,
+            digits: aadhaarDigits(value),
+            ownerName: getAadhaarOwnerName(input)
+          });
         }
         return;
       }
 
       if (!value) {
-        errors.push({ input, message: `${getFieldLabel(input)} is required.` });
+        addError(input, `${getFieldLabel(input)} is required.`);
         return;
       }
 
       if (!isValidAadhaar(value)) {
-        errors.push({ input, message: `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.` });
+        addError(input, `${getFieldLabel(input)} must be in xxxx xxxx xxxx format.`);
+        return;
       }
+
+      validAadhaarEntries.push({
+        input,
+        digits: aadhaarDigits(value),
+        ownerName: getAadhaarOwnerName(input)
+      });
+    });
+
+    const seenInCurrentTeam = new Map();
+    validAadhaarEntries.forEach((entry) => {
+      if (!entry.digits) return;
+      const first = seenInCurrentTeam.get(entry.digits);
+      if (!first) {
+        seenInCurrentTeam.set(entry.digits, entry);
+        return;
+      }
+
+      addError(
+        entry.input,
+        `${entry.ownerName} - Aadhaar number has already in this team at the tournament. You cannot add again.`
+      );
+    });
+
+    const existingAadhaarByTeam = new Map();
+    getRegistrations().forEach((reg) => {
+      const values = [
+        reg?.captain?.aadhaar,
+        reg?.vc?.aadhaar,
+        ...(Array.isArray(reg?.mandatoryPlayers) ? reg.mandatoryPlayers.map((p) => p.aadhaar) : []),
+        ...(Array.isArray(reg?.substitutePlayers) ? reg.substitutePlayers.map((p) => p.aadhaar) : [])
+      ];
+
+      values.forEach((raw) => {
+        const digits = aadhaarDigits(raw);
+        if (digits.length !== 12 || existingAadhaarByTeam.has(digits)) return;
+        existingAadhaarByTeam.set(digits, reg.displayTeamName || reg.teamName || 'another team');
+      });
+    });
+
+    validAadhaarEntries.forEach((entry) => {
+      const existingTeam = existingAadhaarByTeam.get(entry.digits);
+      if (!existingTeam) return;
+      addError(
+        entry.input,
+        `${entry.ownerName} - Aadhaar number has already in team ${existingTeam} at the tournament. You cannot add again.`
+      );
     });
 
     return errors;
