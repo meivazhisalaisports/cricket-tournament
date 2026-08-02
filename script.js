@@ -1154,7 +1154,7 @@ function setupAdminLogin() {
 
   async function doLogin() {
     const userId = (userInput.value || '').trim();
-    const password = passInput.value || '';
+    const password = (passInput.value || '').trim();
 
     if (!userId || !password) {
       errorNode.textContent = 'Enter user ID and password.';
