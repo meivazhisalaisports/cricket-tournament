@@ -75,6 +75,38 @@
             <h3>Substitutes 1 to 5 - Optional</h3>
             <div class="player-list" data-players-substitute></div>
 
+            <h3>Payment - Registration Fee (INR 10,000)</h3>
+            <section class="payment-section" aria-label="Registration payment details">
+              <p class="form-note">Scan the QR code or tap the pay button. After payment, enter the Transaction ID below.</p>
+              <div class="payment-grid">
+                <div class="payment-qr-wrap">
+                  <img
+                    class="payment-qr"
+                    src="https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=upi%3A%2F%2Fpay%3Fpa%3Dsalaikartheeban%40okicici%26pn%3DMSVL%2520Committee%26am%3D10000%26cu%3DINR%26tn%3DMSVL%25202026%2520Team%2520Registration"
+                    alt="UPI QR code for MSVL registration payment"
+                    loading="lazy"
+                  />
+                  <p class="payment-upi">UPI ID: <strong>salaikartheeban@okicici</strong></p>
+                </div>
+                <div class="payment-actions">
+                  <p class="payment-summary">Payment Amount: <strong>INR 10,000</strong></p>
+                  <p class="payment-summary">Mode: <strong>Full Payment Only</strong></p>
+                  <p class="form-note">Please scan the QR code using any UPI app and complete full payment before submitting registration.</p>
+                </div>
+              </div>
+              <label>Transaction ID*
+                <input
+                  type="text"
+                  name="transactionId"
+                  required
+                  maxlength="30"
+                  placeholder="Enter UPI transaction ID"
+                  autocomplete="off"
+                />
+                <span class="field-error" data-field-error></span>
+              </label>
+            </section>
+
             <p class="form-note">All mandatory fields marked with * are required. Aadhaar must be 12 digits in xxxx xxxx xxxx format.</p>
             <p class="form-status" data-form-status></p>
             <div class="form-actions">
