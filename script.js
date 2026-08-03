@@ -6,10 +6,11 @@ const tournament = {
   teams: 16,
   format: 'Knockout',
   overs: '8+8 overs',
-  prizes: ['1L', '80k', '50k', '30k', '20k'],
+  prizes: ['1,00,000', '80,000', '60,000', '40,000', '30,000'],
   organizers: [
     { name: 'Salai Piriyadharshan', phone: '9751495916' },
-    { name: 'Salai Gavanamani', phone: '9159973352' },
+    { name: 'Salai Gavanamani', phone: '6382426641' },
+    { name: 'Salai Elansuriyan', phone: '8489217696' },
     { name: 'Salai Gnana Sudhan', phone: '9943831939' },
     { name: 'Salai Keshava Moorthy', phone: '9789871237' }
   ],
@@ -1684,11 +1685,13 @@ function setupRegistrationForm() {
         <div class="player-row">
           <strong>Player ${playerNo}</strong>
           <div class="input-wrap">
-            <input type="text" name="player${playerNo}Name" required placeholder="Player ${playerNo} name" />
+            <label class="field-mini-label" for="player${playerNo}Name">Name</label>
+            <input id="player${playerNo}Name" type="text" name="player${playerNo}Name" required placeholder="Player ${playerNo} name" />
             <span class="field-error" data-field-error></span>
           </div>
           <div class="input-wrap">
-            <input type="text" name="player${playerNo}Aadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+            <label class="field-mini-label" for="player${playerNo}Aadhaar">Aadhaar Number</label>
+            <input id="player${playerNo}Aadhaar" type="text" name="player${playerNo}Aadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
             <span class="field-error" data-field-error></span>
           </div>
         </div>
@@ -1703,11 +1706,13 @@ function setupRegistrationForm() {
         <div class="player-row">
           <strong>Substitute ${subNo}</strong>
           <div class="input-wrap">
-            <input type="text" name="sub${subNo}Name" placeholder="Substitute ${subNo} name" />
+            <label class="field-mini-label" for="sub${subNo}Name">Name</label>
+            <input id="sub${subNo}Name" type="text" name="sub${subNo}Name" placeholder="Substitute ${subNo} name" />
             <span class="field-error" data-field-error></span>
           </div>
           <div class="input-wrap">
-            <input type="text" name="sub${subNo}Aadhaar" data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+            <label class="field-mini-label" for="sub${subNo}Aadhaar">Aadhaar Number</label>
+            <input id="sub${subNo}Aadhaar" type="text" name="sub${subNo}Aadhaar" data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
             <span class="field-error" data-field-error></span>
           </div>
         </div>
@@ -2100,12 +2105,6 @@ async function initializeApp() {
   highlightCurrentNav();
   setupBackToTop();
 
-  try {
-    await hydrateLocalStateFromCloud();
-  } catch (error) {
-    console.error('Cloud initialization failed:', error);
-  }
-
   buildFixtures();
   buildResultsPage();
   setupAdminLogin();
@@ -2114,6 +2113,19 @@ async function initializeApp() {
   setupTeamSlotDragAndDrop();
   setupFixtureWinnerSelection();
   setupResultsAdminEditing();
+
+  if (isCloudEnabled()) {
+    hydrateLocalStateFromCloud()
+      .then(() => {
+        renderTeamApprovalCards();
+        renderApprovedTeams();
+        buildFixtures();
+        buildResultsPage();
+      })
+      .catch((error) => {
+        console.error('Cloud initialization failed:', error);
+      });
+  }
 }
 
 initializeApp();
