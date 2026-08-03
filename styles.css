@@ -499,6 +499,13 @@ body.admin-mode .admin-only {
   gap: 4px;
 }
 
+.field-mini-label {
+  font-size: 0.78rem;
+  color: #c6d5f8;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .registration-form input {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.2);
