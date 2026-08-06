@@ -41,6 +41,14 @@
               <label>Team Location*
                 <input type="text" name="teamLocation" required placeholder="Enter team location" />
               </label>
+              <label>Team Type*
+                <select name="teamType" required>
+                  <option value="">Select team type</option>
+                  <option value="Setting Team">Setting Team</option>
+                  <option value="Single Village Team">Single Village Team</option>
+                </select>
+                <span class="field-error" data-field-error></span>
+              </label>
             </div>
 
             <h3>Captain Details (Player 1)</h3>
@@ -77,12 +85,12 @@
 
             <h3>Payment - Registration Fee (INR 10,000)</h3>
             <section class="payment-section" aria-label="Registration payment details">
-              <p class="form-note">Scan the QR code or tap the pay button. After payment, enter the Transaction ID below.</p>
+              <p class="form-note">Scan the QR code and choose payment status below.</p>
               <div class="payment-grid">
                 <div class="payment-qr-wrap">
                   <img
                     class="payment-qr"
-                    src="https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=upi%3A%2F%2Fpay%3Fpa%3Dsalaikartheeban%40okicici%26pn%3DMSVL%2520Committee%26am%3D10000%26cu%3DINR%26tn%3DMSVL%25202026%2520Team%2520Registration"
+                    src="https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=upi%3A%2F%2Fpay%3Fpa%3Dsalaikartheeban%40okicici%26pn%3DMSVL%2520Committee%26cu%3DINR%26tn%3DMSVL%25202026%2520Team%2520Registration"
                     alt="UPI QR code for MSVL registration payment"
                     loading="lazy"
                   />
@@ -91,18 +99,31 @@
                 <div class="payment-actions">
                   <p class="payment-summary">Payment Amount: <strong>INR 10,000</strong></p>
                   <p class="payment-summary">Mode: <strong>Full Payment Only</strong></p>
-                  <p class="form-note">Please scan the QR code using any UPI app and complete full payment before submitting registration.</p>
+                  <p class="form-note">Please scan the QR code using any UPI app and complete payment before submitting registration.</p>
                 </div>
               </div>
-              <label>Transaction ID*
-                <input
-                  type="text"
-                  name="transactionId"
-                  required
-                  maxlength="30"
-                  placeholder="Enter UPI transaction ID"
-                  autocomplete="off"
-                />
+              <fieldset class="payment-status-group">
+                <legend>Payment Status*</legend>
+                <div class="radio-inline-row">
+                  <label class="radio-inline">
+                    <input type="radio" name="paymentStatus" value="Paid" required />
+                    <span>Paid</span>
+                  </label>
+                  <label class="radio-inline">
+                    <input type="radio" name="paymentStatus" value="Not paid" required />
+                    <span>Not paid</span>
+                  </label>
+                </div>
+                <span class="field-error" data-field-error></span>
+              </fieldset>
+
+              <label data-paid-amount-wrap hidden>Paid Amount (Numbers Only)*
+                <textarea
+                  name="paidAmount"
+                  rows="2"
+                  inputmode="numeric"
+                  placeholder="Enter paid amount"
+                ></textarea>
                 <span class="field-error" data-field-error></span>
               </label>
             </section>
