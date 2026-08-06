@@ -50,6 +50,55 @@ const cloudConfig = {
   webAppUrl: 'https://script.google.com/macros/s/AKfycbxWUqHHNbzPO7TiwXjq6J6bvd6nVQ0Bdme1-VCpYoTXqslTgssP0WPDXIdOipCyVUQe/exec'
 };
 
+const teamTypeConfig = {
+  limit: 8,
+  setting: 'Setting Team',
+  singleVillage: 'Single Village Team'
+};
+
+function normalizeTeamType(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function resolveTeamTypeLabel(value) {
+  const normalized = normalizeTeamType(value);
+  if (normalized === normalizeTeamType(teamTypeConfig.setting)) return teamTypeConfig.setting;
+  if (normalized === normalizeTeamType(teamTypeConfig.singleVillage)) return teamTypeConfig.singleVillage;
+  return '';
+}
+
+function getTeamTypeTamilLabel(teamTypeLabel) {
+  if (teamTypeLabel === teamTypeConfig.setting) return 'செட்டிங் டீம்';
+  if (teamTypeLabel === teamTypeConfig.singleVillage) return 'சிங்கிள் வில்லேஜ் டீம்';
+  return 'இந்த டீம் வகை';
+}
+
+function isActiveRegistrationStatus(status) {
+  const normalized = String(status || 'pending').trim().toLowerCase();
+  return normalized !== 'rejected' && normalized !== 'removed';
+}
+
+function countRegistrationsForTeamType(registrations, teamTypeLabel) {
+  const normalizedType = normalizeTeamType(teamTypeLabel);
+  if (!normalizedType) return 0;
+
+  return registrations.filter((entry) => {
+    if (!isActiveRegistrationStatus(entry?.status)) return false;
+    const entryType = resolveTeamTypeLabel(entry?.teamType);
+    return normalizeTeamType(entryType) === normalizedType;
+  }).length;
+}
+
+function buildTeamTypeLimitMessage(teamTypeLabel) {
+  const tamilLabel = getTeamTypeTamilLabel(teamTypeLabel);
+  return (
+    `For the ${teamTypeLabel}, already ${teamTypeConfig.limit} teams have been registered. ` +
+    'Before paying / registering kindly contact the Admin / organiser.\n\n' +
+    `${tamilLabel} பிரிவில் ஏற்கனவே ${teamTypeConfig.limit} அணிகள் பதிவு செய்யப்பட்டுள்ளன. ` +
+    'பணம் செலுத்த / பதிவு செய்யும் முன் நிர்வாகி / ஒருங்கிணைப்பாளரை தொடர்பு கொள்ளவும்.'
+  );
+}
+
 function getAdminSession() {
   try {
     const raw = window.sessionStorage.getItem(adminAuth.sessionKey);
@@ -112,7 +161,12 @@ async function cloudPost(payload) {
   });
   if (!response.ok) throw new Error(`Cloud write failed: ${response.status}`);
   const result = await response.json();
-  if (!result || result.ok !== true) throw new Error(result?.error || 'Cloud write returned invalid response');
+  if (!result || result.ok !== true) {
+    const error = new Error(result?.message || result?.error || 'Cloud write returned invalid response');
+    error.code = result?.error || 'CLOUD_WRITE_FAILED';
+    error.payload = result;
+    throw error;
+  }
 }
 
 function parseCloudRegistrations(rows) {
@@ -140,9 +194,11 @@ function parseCloudRegistrations(rows) {
         teamName: String(row.teamName || details.teamName || '').trim(),
         displayTeamName: String(details.displayTeamName || row.teamName || '').trim(),
         teamLocation: String(details.teamLocation || '').trim(),
+        teamType: resolveTeamTypeLabel(details.teamType || row.teamType || ''),
+        paymentStatus: String(details.paymentStatus || '').trim(),
+        paidAmount: String(details.paidAmount || '').trim(),
         captain: details.captain && typeof details.captain === 'object' ? details.captain : captainFromRow,
         vc: details.vc && typeof details.vc === 'object' ? details.vc : { name: '', phone: '', aadhaar: '' },
-        transactionId: String(details.transactionId || row.transactionId || '').trim(),
         mandatoryPlayers: Array.isArray(details.mandatoryPlayers) ? details.mandatoryPlayers : [],
         substitutePlayers: Array.isArray(details.substitutePlayers) ? details.substitutePlayers : []
       };
@@ -225,6 +281,7 @@ function syncRegistrationDelta(previousList, nextList) {
         action: 'registerTeam',
         id: item.id,
         teamName: item.teamName,
+        teamType: item.teamType || '',
         captainName: item.captain?.name || '',
         captainPhone: item.captain?.phone || '',
         captainAadhaar: item.captain?.aadhaar || '',
@@ -332,6 +389,17 @@ async function hydrateLocalStateFromCloud() {
   window.localStorage.setItem(storageKeys.teamSlots, JSON.stringify(teamSlots));
   window.localStorage.setItem(storageKeys.matchWinners, JSON.stringify(matchWinners));
   window.localStorage.setItem(storageKeys.resultsMeta, JSON.stringify(resultsMeta));
+}
+
+async function getLatestRegistrationsForLimitCheck() {
+  if (!isCloudEnabled()) return getRegistrations();
+
+  try {
+    const cloudData = await cloudFetchAllData();
+    return parseCloudRegistrations(cloudData?.registrations);
+  } catch (error) {
+    return getRegistrations();
+  }
 }
 
 function createEmptyTeamSlots() {
@@ -1226,10 +1294,11 @@ function getRegistrations() {
   }
 }
 
-function saveRegistrations(list) {
+function saveRegistrations(list, options) {
   const previous = getRegistrations();
+  const skipCloudSync = !!(options && options.skipCloudSync);
   window.localStorage.setItem(storageKeys.registrations, JSON.stringify(list));
-  if (isCloudEnabled()) syncRegistrationDelta(previous, list);
+  if (isCloudEnabled() && !skipCloudSync) syncRegistrationDelta(previous, list);
 }
 
 function getStatusLabel(status) {
@@ -1443,6 +1512,8 @@ function renderTeamApprovalCards() {
           <h4>${item.displayTeamName}</h4>
           <p>Base team: ${item.teamName}</p>
           <p>Location: ${item.teamLocation}</p>
+          <p>Team Type: ${item.teamType || '-'}</p>
+          <p>Payment Status: ${item.paymentStatus || '-'}</p>
           <p>Status: ${getStatusLabel(item.status)}</p>
           <button type="button" class="btn btn-secondary" data-team-view="${index}">View Details</button>
         </article>
@@ -1543,6 +1614,7 @@ function setupTeamDetailModal() {
         <div class="team-detail-row"><span>Display Team Name</span><span>${entry.displayTeamName}</span></div>
         <div class="team-detail-row"><span>Base Team Name</span><span>${entry.teamName}</span></div>
         <div class="team-detail-row"><span>Team Location</span><span>${entry.teamLocation}</span></div>
+        <div class="team-detail-row"><span>Team Type</span><span>${entry.teamType || '-'}</span></div>
         <div class="team-detail-row"><span>Status</span><span>${getStatusLabel(entry.status)}</span></div>
       </section>
 
@@ -1562,7 +1634,8 @@ function setupTeamDetailModal() {
 
       <section class="team-detail-group">
         <h4>Payment</h4>
-        <div class="team-detail-row"><span>Transaction ID</span><span>${entry.transactionId || '-'}</span></div>
+        <div class="team-detail-row"><span>Payment Status</span><span>${entry.paymentStatus || '-'}</span></div>
+        <div class="team-detail-row"><span>Paid Amount</span><span>${entry.paymentStatus === 'Paid' ? (entry.paidAmount || '-') : '-'}</span></div>
       </section>
 
       <section class="team-detail-group">
@@ -1677,6 +1750,9 @@ function setupRegistrationForm() {
   const mandatoryList = form.querySelector('[data-players-mandatory]');
   const substituteList = form.querySelector('[data-players-substitute]');
   const statusNode = form.querySelector('[data-form-status]');
+  const paidAmountWrap = form.querySelector('[data-paid-amount-wrap]');
+  const paidAmountInput = form.querySelector('textarea[name="paidAmount"]');
+  const paymentStatusInputs = Array.from(form.querySelectorAll('input[name="paymentStatus"]'));
 
   if (mandatoryList) {
     mandatoryList.innerHTML = Array.from({ length: 9 }, (_, i) => {
@@ -1778,8 +1854,32 @@ function setupRegistrationForm() {
   }
 
   function clearAllFieldErrors() {
-    form.querySelectorAll('input').forEach((input) => clearFieldError(input));
+    form.querySelectorAll('input, select, textarea').forEach((field) => clearFieldError(field));
   }
+
+  function setPaidAmountVisibility(paymentStatus) {
+    if (!paidAmountWrap || !paidAmountInput) return;
+    const isPaid = String(paymentStatus || '').trim().toLowerCase() === 'paid';
+    paidAmountWrap.hidden = !isPaid;
+    paidAmountInput.disabled = !isPaid;
+    if (!isPaid) {
+      paidAmountInput.value = '';
+      clearFieldError(paidAmountInput);
+    }
+  }
+
+  paymentStatusInputs.forEach((input) => {
+    input.addEventListener('pointerdown', () => {
+      input.dataset.wasChecked = input.checked ? '1' : '0';
+    });
+
+    input.addEventListener('click', () => {
+      if (input.dataset.wasChecked !== '1') return;
+      input.checked = false;
+      setPaidAmountVisibility('');
+      clearFieldError(input);
+    });
+  });
 
   function validateRegistrationForm() {
     const errors = [];
@@ -1819,10 +1919,11 @@ function setupRegistrationForm() {
       return getFieldLabel(input).replace(/\s*Aadhaar$/i, '').trim();
     }
 
-    const requiredInputs = Array.from(form.querySelectorAll('input[required]'));
+    const requiredInputs = Array.from(form.querySelectorAll('input[required], select[required]'));
     const validAadhaarEntries = [];
 
     requiredInputs.forEach((input) => {
+      if (input.type === 'radio') return;
       if (input.hasAttribute('data-aadhaar')) return;
       const value = (input.value || '').trim();
       if (!value) {
@@ -1839,15 +1940,19 @@ function setupRegistrationForm() {
       }
     });
 
-    const transactionIdInput = form.querySelector('input[name="transactionId"]');
-    if (transactionIdInput) {
-      const transactionId = String(transactionIdInput.value || '').trim();
-      if (!transactionId) {
-        addError(transactionIdInput, 'Transaction ID is required.');
-      } else if (transactionId.length < 10 || transactionId.length > 30) {
-        addError(transactionIdInput, 'Transaction ID must be between 10 and 30 characters.');
-      } else if (!/^[A-Za-z0-9_-]+$/.test(transactionId)) {
-        addError(transactionIdInput, 'Transaction ID must contain only letters, numbers, underscore, or hyphen.');
+    const selectedPaymentStatusInput = paymentStatusInputs.find((input) => input.checked);
+    const paymentStatus = selectedPaymentStatusInput ? String(selectedPaymentStatusInput.value || '').trim() : '';
+
+    if (!paymentStatus) {
+      if (paymentStatusInputs[0]) addError(paymentStatusInputs[0], 'Payment Status is required.');
+    }
+
+    const paidAmountValue = String(paidAmountInput?.value || '').trim();
+    if (paymentStatus === 'Paid') {
+      if (!paidAmountValue) {
+        if (paidAmountInput) addError(paidAmountInput, 'Paid Amount is required when Payment Status is Paid.');
+      } else if (!/^\d+$/.test(paidAmountValue)) {
+        if (paidAmountInput) addError(paidAmountInput, 'Paid Amount must contain numbers only.');
       }
     }
 
@@ -1945,149 +2050,276 @@ function setupRegistrationForm() {
     return errors;
   }
 
-  form.querySelectorAll('input').forEach((input) => ensureFieldErrorNode(input));
+  form.querySelectorAll('input, select, textarea').forEach((field) => ensureFieldErrorNode(field));
 
   form.addEventListener('input', (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    if (target.hasAttribute('data-aadhaar')) {
-      target.value = formatAadhaar(target.value);
+    if (target instanceof HTMLTextAreaElement && target.name === 'paidAmount') {
+      target.value = target.value.replace(/\D/g, '');
+      clearFieldError(target);
+      return;
     }
-    if (/Phone$/.test(target.name || '')) {
-      target.value = target.value.replace(/\D/g, '').slice(0, 10);
+
+    if (target instanceof HTMLInputElement) {
+      if (target.hasAttribute('data-aadhaar')) {
+        target.value = formatAadhaar(target.value);
+      }
+      if (/Phone$/.test(target.name || '')) {
+        target.value = target.value.replace(/\D/g, '').slice(0, 10);
+      }
+      clearFieldError(target);
+      return;
     }
-    clearFieldError(target);
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.name === 'paymentStatus') {
+      setPaidAmountVisibility(target.value);
+      clearFieldError(target);
+      return;
+    }
+
+    if (target instanceof HTMLSelectElement) {
+      clearFieldError(target);
+
+      if (target.name !== 'teamType') return;
+      const selectedType = resolveTeamTypeLabel(target.value);
+      if (!selectedType) return;
+
+      const currentCount = countRegistrationsForTeamType(getRegistrations(), selectedType);
+      if (currentCount >= teamTypeConfig.limit) {
+        alert(buildTeamTypeLimitMessage(selectedType));
+      }
+    }
+  });
+
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+
     clearAllFieldErrors();
     if (statusNode) {
       statusNode.textContent = '';
       statusNode.className = 'form-status';
     }
+    try {
+      const errors = validateRegistrationForm();
+      if (errors.length) {
+        const handled = new Set();
+        errors.forEach(({ input, message }) => {
+          if (handled.has(input)) return;
+          handled.add(input);
+          setFieldError(input, message);
+        });
 
-    const errors = validateRegistrationForm();
-    if (errors.length) {
-      const handled = new Set();
-      errors.forEach(({ input, message }) => {
-        if (handled.has(input)) return;
-        handled.add(input);
-        setFieldError(input, message);
+        if (statusNode) {
+          statusNode.textContent = 'Please fix the highlighted fields.';
+          statusNode.classList.add('error');
+        }
+
+        const firstInput = errors[0].input;
+        if (firstInput && typeof firstInput.focus === 'function') firstInput.focus();
+        return;
+      }
+
+      const formData = new FormData(form);
+      const teamName = String(formData.get('teamName') || '').trim();
+      const teamType = resolveTeamTypeLabel(String(formData.get('teamType') || '').trim());
+      if (!teamType) {
+        const teamTypeInput = form.querySelector('select[name="teamType"]');
+        if (teamTypeInput) {
+          setFieldError(teamTypeInput, 'Team Type is required.');
+          teamTypeInput.focus();
+        }
+        if (statusNode) {
+          statusNode.textContent = 'Please fix the highlighted fields.';
+          statusNode.classList.add('error');
+        }
+        return;
+      }
+
+      const latestRegistrations = await getLatestRegistrationsForLimitCheck();
+      const teamTypeCount = countRegistrationsForTeamType(latestRegistrations, teamType);
+      if (teamTypeCount >= teamTypeConfig.limit) {
+        const teamTypeInput = form.querySelector('select[name="teamType"]');
+        if (teamTypeInput) {
+          setFieldError(teamTypeInput, buildTeamTypeLimitMessage(teamType));
+          teamTypeInput.focus();
+        }
+        if (statusNode) {
+          statusNode.textContent = 'Selected Team Type registration limit reached.';
+          statusNode.classList.add('error');
+        }
+        alert(buildTeamTypeLimitMessage(teamType));
+        return;
+      }
+
+      const sameTeamCount = latestRegistrations.filter((r) => (r.teamName || '').toLowerCase() === teamName.toLowerCase()).length;
+      const displayTeamName = sameTeamCount ? `${teamName} ${sameTeamCount + 1}` : teamName;
+
+      const mandatoryPlayers = Array.from({ length: 9 }, (_, i) => {
+        const playerNo = i + 3;
+        return {
+          label: `Player ${playerNo}`,
+          name: String(formData.get(`player${playerNo}Name`) || '').trim(),
+          aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim()
+        };
       });
 
-      if (statusNode) {
-        statusNode.textContent = 'Please fix the highlighted fields.';
-        statusNode.classList.add('error');
+      const substitutePlayers = Array.from({ length: 5 }, (_, i) => {
+        const subNo = i + 1;
+        return {
+          label: `Substitute ${subNo}`,
+          name: String(formData.get(`sub${subNo}Name`) || '').trim(),
+          aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim()
+        };
+      });
+
+      const paymentStatus = String(formData.get('paymentStatus') || '').trim();
+      const paidAmount = String(formData.get('paidAmount') || '').trim();
+
+      if (!paymentStatus) {
+        const paymentStatusInput = form.querySelector('input[name="paymentStatus"]');
+        if (paymentStatusInput) {
+          setFieldError(paymentStatusInput, 'Payment Status is required.');
+          paymentStatusInput.focus();
+        }
+        if (statusNode) {
+          statusNode.textContent = 'Please fix the highlighted fields.';
+          statusNode.classList.add('error');
+        }
+        return;
       }
 
-      const firstInput = errors[0].input;
-      if (firstInput && typeof firstInput.focus === 'function') firstInput.focus();
-      return;
-    }
+      if (paymentStatus === 'Paid') {
+        if (!paidAmount || !/^\d+$/.test(paidAmount)) {
+          if (paidAmountInput) {
+            setFieldError(paidAmountInput, 'Enter Paid Amount in numbers only.');
+            paidAmountInput.focus();
+          }
+          if (statusNode) {
+            statusNode.textContent = 'Please fix the highlighted fields.';
+            statusNode.classList.add('error');
+          }
+          return;
+        }
+      }
 
-    const formData = new FormData(form);
-    const teamName = String(formData.get('teamName') || '').trim();
-    const registrations = getRegistrations();
-    const sameTeamCount = registrations.filter((r) => (r.teamName || '').toLowerCase() === teamName.toLowerCase()).length;
-    const displayTeamName = sameTeamCount ? `${teamName} ${sameTeamCount + 1}` : teamName;
+      const invalidSubNoName = substitutePlayers.find((player) => player.aadhaar && !player.name);
+      if (invalidSubNoName) {
+        const subNo = Number(String(invalidSubNoName.label || '').replace(/\D/g, ''));
+        const subNameInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Name"]`) : null;
+        if (subNameInput) {
+          setFieldError(subNameInput, 'Substitute name is required when Aadhaar is entered.');
+          subNameInput.focus();
+        }
+        if (statusNode) {
+          statusNode.textContent = 'Please fix the highlighted fields.';
+          statusNode.classList.add('error');
+        }
+        return;
+      }
 
-    const mandatoryPlayers = Array.from({ length: 9 }, (_, i) => {
-      const playerNo = i + 3;
-      return {
-        label: `Player ${playerNo}`,
-        name: String(formData.get(`player${playerNo}Name`) || '').trim(),
-        aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim()
+      const invalidSubNoAadhaar = substitutePlayers.find((player) => player.name && !player.aadhaar);
+      if (invalidSubNoAadhaar) {
+        const subNo = Number(String(invalidSubNoAadhaar.label || '').replace(/\D/g, ''));
+        const subAadhaarInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Aadhaar"]`) : null;
+        if (subAadhaarInput) {
+          setFieldError(subAadhaarInput, 'Substitute Aadhaar is required when name is entered.');
+          subAadhaarInput.focus();
+        }
+        if (statusNode) {
+          statusNode.textContent = 'Please fix the highlighted fields.';
+          statusNode.classList.add('error');
+        }
+        return;
+      }
+
+      const record = {
+        id: `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        teamName,
+        displayTeamName,
+        teamLocation: String(formData.get('teamLocation') || '').trim(),
+        teamType,
+        captain: {
+          name: String(formData.get('captainName') || '').trim(),
+          phone: String(formData.get('captainPhone') || '').trim(),
+          aadhaar: String(formData.get('captainAadhaar') || '').trim()
+        },
+        vc: {
+          name: String(formData.get('vcName') || '').trim(),
+          phone: String(formData.get('vcPhone') || '').trim(),
+          aadhaar: String(formData.get('vcAadhaar') || '').trim()
+        },
+        paymentStatus,
+        paidAmount: paymentStatus === 'Paid' ? paidAmount : '',
+        mandatoryPlayers,
+        substitutePlayers
       };
-    });
 
-    const substitutePlayers = Array.from({ length: 5 }, (_, i) => {
-      const subNo = i + 1;
-      return {
-        label: `Substitute ${subNo}`,
-        name: String(formData.get(`sub${subNo}Name`) || '').trim(),
-        aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim()
-      };
-    });
+      if (isCloudEnabled()) {
+        try {
+          await cloudPost({
+            action: 'registerTeam',
+            id: record.id,
+            teamName: record.teamName,
+            teamType: record.teamType,
+            captainName: record.captain?.name || '',
+            captainPhone: record.captain?.phone || '',
+            captainAadhaar: record.captain?.aadhaar || '',
+            playerJson: record,
+            status: record.status,
+            createdAt: record.createdAt
+          });
+          await hydrateLocalStateFromCloud();
+        } catch (error) {
+          if (error?.code === 'TEAM_TYPE_LIMIT_REACHED') {
+            const popupMessage = buildTeamTypeLimitMessage(teamType);
+            const teamTypeInput = form.querySelector('select[name="teamType"]');
+            if (teamTypeInput) {
+              setFieldError(teamTypeInput, popupMessage);
+              teamTypeInput.focus();
+            }
+            if (statusNode) {
+              statusNode.textContent = 'Selected Team Type registration limit reached.';
+              statusNode.classList.add('error');
+            }
+            alert(popupMessage);
+            return;
+          }
 
-    const transactionId = String(formData.get('transactionId') || '').trim();
-    if (!transactionId || transactionId.length < 10 || transactionId.length > 30 || !/^[A-Za-z0-9_-]+$/.test(transactionId)) {
-      const transactionIdInput = form.querySelector('input[name="transactionId"]');
-      if (transactionIdInput) {
-        setFieldError(transactionIdInput, 'Enter a valid Transaction ID (10-30 chars).');
-        transactionIdInput.focus();
+          if (statusNode) {
+            statusNode.textContent = 'Unable to submit registration now. Please try again.';
+            statusNode.classList.add('error');
+          }
+          return;
+        }
+      } else {
+        const registrations = getRegistrations();
+        registrations.push(record);
+        saveRegistrations(registrations);
       }
+
+      renderTeamApprovalCards();
+      renderApprovedTeams();
+
       if (statusNode) {
-        statusNode.textContent = 'Please fix the highlighted fields.';
-        statusNode.classList.add('error');
+        statusNode.textContent = `Registration submitted successfully as ${displayTeamName}.`;
+        statusNode.classList.add('success');
       }
-      return;
+
+      form.reset();
+      setPaidAmountVisibility('');
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
-
-    const invalidSubNoName = substitutePlayers.find((player) => player.aadhaar && !player.name);
-    if (invalidSubNoName) {
-      const subNo = Number(String(invalidSubNoName.label || '').replace(/\D/g, ''));
-      const subNameInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Name"]`) : null;
-      if (subNameInput) {
-        setFieldError(subNameInput, 'Substitute name is required when Aadhaar is entered.');
-        subNameInput.focus();
-      }
-      if (statusNode) {
-        statusNode.textContent = 'Please fix the highlighted fields.';
-        statusNode.classList.add('error');
-      }
-      return;
-    }
-
-    const invalidSubNoAadhaar = substitutePlayers.find((player) => player.name && !player.aadhaar);
-    if (invalidSubNoAadhaar) {
-      const subNo = Number(String(invalidSubNoAadhaar.label || '').replace(/\D/g, ''));
-      const subAadhaarInput = Number.isInteger(subNo) ? form.querySelector(`[name="sub${subNo}Aadhaar"]`) : null;
-      if (subAadhaarInput) {
-        setFieldError(subAadhaarInput, 'Substitute Aadhaar is required when name is entered.');
-        subAadhaarInput.focus();
-      }
-      if (statusNode) {
-        statusNode.textContent = 'Please fix the highlighted fields.';
-        statusNode.classList.add('error');
-      }
-      return;
-    }
-
-    const record = {
-      id: `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-      teamName,
-      displayTeamName,
-      teamLocation: String(formData.get('teamLocation') || '').trim(),
-      captain: {
-        name: String(formData.get('captainName') || '').trim(),
-        phone: String(formData.get('captainPhone') || '').trim(),
-        aadhaar: String(formData.get('captainAadhaar') || '').trim()
-      },
-      vc: {
-        name: String(formData.get('vcName') || '').trim(),
-        phone: String(formData.get('vcPhone') || '').trim(),
-        aadhaar: String(formData.get('vcAadhaar') || '').trim()
-      },
-      transactionId,
-      mandatoryPlayers,
-      substitutePlayers
-    };
-
-    registrations.push(record);
-    saveRegistrations(registrations);
-    renderTeamApprovalCards();
-    renderApprovedTeams();
-
-    if (statusNode) {
-      statusNode.textContent = `Registration submitted successfully as ${displayTeamName}.`;
-      statusNode.classList.add('success');
-    }
-
-    form.reset();
   });
+
+  setPaidAmountVisibility('');
 
   renderTeamApprovalCards();
   renderApprovedTeams();
