@@ -181,12 +181,13 @@ function normalizeAadhaarPhotoMeta(photo) {
 
   const fileId = String(photo.fileId || '').trim();
   const fileName = String(photo.fileName || '').trim();
+  const dataUrl = String(photo.dataUrl || '').trim();
   const downloadUrl = String(photo.downloadUrl || '').trim() || (fileId
     ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
-    : '');
+    : dataUrl);
 
-  if (!fileId && !downloadUrl && !fileName) return null;
-  return { fileId, fileName, downloadUrl };
+  if (!fileId && !downloadUrl && !fileName && !dataUrl) return null;
+  return { fileId, fileName, downloadUrl, dataUrl };
 }
 
 function normalizePersonRecord(person, fallback) {
@@ -266,14 +267,16 @@ async function buildAadhaarPhotoUpload(file) {
 
   return {
     fileName: String(file.name || '').trim(),
-    contentType,
-    dataUrl: await readFileAsDataUrl(file)
+    contentType
   };
 }
 
 function buildAadhaarPhotoDownloadMarkup(photo, fileLabel) {
   const normalized = normalizeAadhaarPhotoMeta(photo);
   if (!normalized?.downloadUrl) {
+    if (normalized?.fileName) {
+      return `<span class="team-detail-empty-note">Uploaded file: ${escapeHtml(normalized.fileName)} (download unavailable in current storage mode).</span>`;
+    }
     return '<span class="team-detail-empty-note">No Aadhaar photo uploaded.</span>';
   }
 
