@@ -50,6 +50,12 @@ const cloudConfig = {
   webAppUrl: 'https://script.google.com/macros/s/AKfycbxWUqHHNbzPO7TiwXjq6J6bvd6nVQ0Bdme1-VCpYoTXqslTgssP0WPDXIdOipCyVUQe/exec'
 };
 
+const aadhaarPhotoConfig = {
+  acceptAttr: '.jpg,.jpeg,.png,image/jpeg,image/png',
+  maxSizeBytes: 2 * 1024 * 1024,
+  allowedTypes: ['image/jpeg', 'image/png']
+};
+
 const teamTypeConfig = {
   limit: 8,
   setting: 'Setting Team',
@@ -167,6 +173,104 @@ async function cloudPost(payload) {
     error.payload = result;
     throw error;
   }
+  return result;
+}
+
+function normalizeAadhaarPhotoMeta(photo) {
+  if (!photo || typeof photo !== 'object') return null;
+
+  const fileId = String(photo.fileId || '').trim();
+  const fileName = String(photo.fileName || '').trim();
+  const downloadUrl = String(photo.downloadUrl || '').trim() || (fileId
+    ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
+    : '');
+
+  if (!fileId && !downloadUrl && !fileName) return null;
+  return { fileId, fileName, downloadUrl };
+}
+
+function normalizePersonRecord(person, fallback) {
+  const source = person && typeof person === 'object' ? person : {};
+  const defaults = fallback && typeof fallback === 'object' ? fallback : {};
+
+  return {
+    label: String(source.label || defaults.label || '').trim(),
+    name: String(source.name || defaults.name || '').trim(),
+    phone: String(source.phone || defaults.phone || '').trim(),
+    aadhaar: String(source.aadhaar || defaults.aadhaar || '').trim(),
+    aadhaarPhoto: normalizeAadhaarPhotoMeta(source.aadhaarPhoto || defaults.aadhaarPhoto)
+  };
+}
+
+function normalizeRegistrationRecord(record) {
+  const source = record && typeof record === 'object' ? record : {};
+  return {
+    ...source,
+    id: String(source.id || '').trim(),
+    createdAt: String(source.createdAt || new Date().toISOString()),
+    status: String(source.status || 'pending').trim() || 'pending',
+    teamName: String(source.teamName || '').trim(),
+    displayTeamName: String(source.displayTeamName || source.teamName || '').trim(),
+    teamLocation: String(source.teamLocation || '').trim(),
+    teamType: resolveTeamTypeLabel(source.teamType || '') || String(source.teamType || '').trim(),
+    paymentStatus: String(source.paymentStatus || '').trim(),
+    paidAmount: String(source.paidAmount || '').trim(),
+    captain: normalizePersonRecord(source.captain),
+    vc: normalizePersonRecord(source.vc),
+    mandatoryPlayers: Array.isArray(source.mandatoryPlayers)
+      ? source.mandatoryPlayers.map((person, index) => normalizePersonRecord(person, { label: `Player ${index + 3}` }))
+      : [],
+    substitutePlayers: Array.isArray(source.substitutePlayers)
+      ? source.substitutePlayers.map((person, index) => normalizePersonRecord(person, { label: `Substitute ${index + 1}` }))
+      : []
+  };
+}
+
+function isSupportedAadhaarPhotoFile(file) {
+  if (!(file instanceof File)) return false;
+  const type = String(file.type || '').toLowerCase();
+  if (aadhaarPhotoConfig.allowedTypes.includes(type)) return true;
+  return /\.(jpe?g|png)$/i.test(String(file.name || ''));
+}
+
+function getAadhaarPhotoLimitText() {
+  return `${Math.round(aadhaarPhotoConfig.maxSizeBytes / (1024 * 1024))} MB`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Unable to read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function buildAadhaarPhotoUpload(file) {
+  if (!(file instanceof File)) return null;
+  return {
+    fileName: String(file.name || '').trim(),
+    contentType: String(file.type || '').trim(),
+    dataUrl: await readFileAsDataUrl(file)
+  };
+}
+
+function buildAadhaarPhotoDownloadMarkup(photo, fileLabel) {
+  const normalized = normalizeAadhaarPhotoMeta(photo);
+  if (!normalized?.downloadUrl) {
+    return '<span class="team-detail-empty-note">No Aadhaar photo uploaded.</span>';
+  }
+
+  const downloadName = normalized.fileName || `${fileLabel || 'aadhaar'}-aadhaar`;
+  return `
+    <a
+      class="btn btn-secondary btn-download-link"
+      href="${escapeHtml(normalized.downloadUrl)}"
+      target="_blank"
+      rel="noopener noreferrer"
+      download="${escapeHtml(downloadName)}"
+    >Download Aadhaar</a>
+  `;
 }
 
 function parseCloudRegistrations(rows) {
@@ -187,7 +291,7 @@ function parseCloudRegistrations(rows) {
         aadhaar: String(row.captainAadhaar || '').trim()
       };
 
-      const record = {
+      const record = normalizeRegistrationRecord({
         id: String(row.id || details.id || '').trim(),
         createdAt: String(row.createdAt || details.createdAt || new Date().toISOString()),
         status: String(row.status || details.status || 'pending').trim() || 'pending',
@@ -201,7 +305,7 @@ function parseCloudRegistrations(rows) {
         vc: details.vc && typeof details.vc === 'object' ? details.vc : { name: '', phone: '', aadhaar: '' },
         mandatoryPlayers: Array.isArray(details.mandatoryPlayers) ? details.mandatoryPlayers : [],
         substitutePlayers: Array.isArray(details.substitutePlayers) ? details.substitutePlayers : []
-      };
+      });
 
       if (!record.id || !record.teamName) return null;
       if (record.status === 'removed') return null;
@@ -1288,7 +1392,7 @@ function getRegistrations() {
   try {
     const raw = window.localStorage.getItem(storageKeys.registrations);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map((item) => normalizeRegistrationRecord(item)) : [];
   } catch (error) {
     return [];
   }
@@ -1594,7 +1698,13 @@ function setupTeamDetailModal() {
     const mandatoryPlayers = entry.mandatoryPlayers
       .map(
         (p) => `
-          <div class="team-detail-row"><span>${p.label}</span><span>${p.name} - ${p.aadhaar}</span></div>
+          <div class="team-detail-row">
+            <span>${escapeHtml(p.label)}</span>
+            <span class="team-detail-value-stack">
+              <span>${escapeHtml(p.name || '-')} - ${escapeHtml(p.aadhaar || '-')}</span>
+              ${buildAadhaarPhotoDownloadMarkup(p.aadhaarPhoto, p.name || p.label)}
+            </span>
+          </div>
         `
       )
       .join('');
@@ -1603,7 +1713,13 @@ function setupTeamDetailModal() {
       .filter((p) => p.name || p.aadhaar)
       .map(
         (p) => `
-          <div class="team-detail-row"><span>${p.label}</span><span>${p.name || '-'} - ${p.aadhaar || '-'}</span></div>
+          <div class="team-detail-row">
+            <span>${escapeHtml(p.label)}</span>
+            <span class="team-detail-value-stack">
+              <span>${escapeHtml(p.name || '-')} - ${escapeHtml(p.aadhaar || '-')}</span>
+              ${buildAadhaarPhotoDownloadMarkup(p.aadhaarPhoto, p.name || p.label)}
+            </span>
+          </div>
         `
       )
       .join('');
@@ -1611,31 +1727,43 @@ function setupTeamDetailModal() {
     detailBody.innerHTML = `
       <section class="team-detail-group">
         <h4>Team Info</h4>
-        <div class="team-detail-row"><span>Display Team Name</span><span>${entry.displayTeamName}</span></div>
-        <div class="team-detail-row"><span>Base Team Name</span><span>${entry.teamName}</span></div>
-        <div class="team-detail-row"><span>Team Location</span><span>${entry.teamLocation}</span></div>
-        <div class="team-detail-row"><span>Team Type</span><span>${entry.teamType || '-'}</span></div>
-        <div class="team-detail-row"><span>Status</span><span>${getStatusLabel(entry.status)}</span></div>
+        <div class="team-detail-row"><span>Display Team Name</span><span>${escapeHtml(entry.displayTeamName)}</span></div>
+        <div class="team-detail-row"><span>Base Team Name</span><span>${escapeHtml(entry.teamName)}</span></div>
+        <div class="team-detail-row"><span>Team Location</span><span>${escapeHtml(entry.teamLocation)}</span></div>
+        <div class="team-detail-row"><span>Team Type</span><span>${escapeHtml(entry.teamType || '-')}</span></div>
+        <div class="team-detail-row"><span>Status</span><span>${escapeHtml(getStatusLabel(entry.status))}</span></div>
       </section>
 
       <section class="team-detail-group">
         <h4>Captain</h4>
-        <div class="team-detail-row"><span>Name</span><span>${entry.captain.name}</span></div>
-        <div class="team-detail-row"><span>Phone</span><span>${entry.captain.phone}</span></div>
-        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.captain.aadhaar}</span></div>
+        <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.captain.name)}</span></div>
+        <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.captain.phone)}</span></div>
+        <div class="team-detail-row">
+          <span>Aadhaar</span>
+          <span class="team-detail-value-stack">
+            <span>${escapeHtml(entry.captain.aadhaar)}</span>
+            ${buildAadhaarPhotoDownloadMarkup(entry.captain.aadhaarPhoto, entry.captain.name || 'captain')}
+          </span>
+        </div>
       </section>
 
       <section class="team-detail-group">
         <h4>Vice Captain</h4>
-        <div class="team-detail-row"><span>Name</span><span>${entry.vc.name}</span></div>
-        <div class="team-detail-row"><span>Phone</span><span>${entry.vc.phone}</span></div>
-        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.vc.aadhaar}</span></div>
+        <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.vc.name)}</span></div>
+        <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.vc.phone)}</span></div>
+        <div class="team-detail-row">
+          <span>Aadhaar</span>
+          <span class="team-detail-value-stack">
+            <span>${escapeHtml(entry.vc.aadhaar)}</span>
+            ${buildAadhaarPhotoDownloadMarkup(entry.vc.aadhaarPhoto, entry.vc.name || 'vice-captain')}
+          </span>
+        </div>
       </section>
 
       <section class="team-detail-group">
         <h4>Payment</h4>
-        <div class="team-detail-row"><span>Payment Status</span><span>${entry.paymentStatus || '-'}</span></div>
-        <div class="team-detail-row"><span>Paid Amount</span><span>${entry.paymentStatus === 'Paid' ? (entry.paidAmount || '-') : '-'}</span></div>
+        <div class="team-detail-row"><span>Payment Status</span><span>${escapeHtml(entry.paymentStatus || '-')}</span></div>
+        <div class="team-detail-row"><span>Paid Amount</span><span>${escapeHtml(entry.paymentStatus === 'Paid' ? (entry.paidAmount || '-') : '-')}</span></div>
       </section>
 
       <section class="team-detail-group">
@@ -1770,6 +1898,11 @@ function setupRegistrationForm() {
             <input id="player${playerNo}Aadhaar" type="text" name="player${playerNo}Aadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
             <span class="field-error" data-field-error></span>
           </div>
+          <div class="input-wrap">
+            <label class="field-mini-label" for="player${playerNo}AadhaarPhoto">Aadhaar Photo</label>
+            <input id="player${playerNo}AadhaarPhoto" type="file" name="player${playerNo}AadhaarPhoto" required data-aadhaar-photo accept="${aadhaarPhotoConfig.acceptAttr}" />
+            <span class="field-error" data-field-error></span>
+          </div>
         </div>
       `;
     }).join('');
@@ -1789,6 +1922,11 @@ function setupRegistrationForm() {
           <div class="input-wrap">
             <label class="field-mini-label" for="sub${subNo}Aadhaar">Aadhaar Number</label>
             <input id="sub${subNo}Aadhaar" type="text" name="sub${subNo}Aadhaar" data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
+            <span class="field-error" data-field-error></span>
+          </div>
+          <div class="input-wrap">
+            <label class="field-mini-label" for="sub${subNo}AadhaarPhoto">Aadhaar Photo</label>
+            <input id="sub${subNo}AadhaarPhoto" type="file" name="sub${subNo}AadhaarPhoto" data-aadhaar-photo accept="${aadhaarPhotoConfig.acceptAttr}" />
             <span class="field-error" data-field-error></span>
           </div>
         </div>
@@ -1832,7 +1970,9 @@ function setupRegistrationForm() {
     const row = input.closest('.player-row');
     if (row) {
       const rowTitle = row.querySelector('strong')?.textContent?.trim() || 'Player';
+      const isPhoto = /aadhaarphoto/i.test(input.name);
       const isAadhaar = /aadhaar/i.test(input.name);
+      if (isPhoto) return `${rowTitle} Aadhaar Photo`;
       return isAadhaar ? `${rowTitle} Aadhaar` : `${rowTitle} Name`;
     }
 
@@ -2007,6 +2147,44 @@ function setupRegistrationForm() {
       });
     });
 
+    const aadhaarPhotoInputs = Array.from(form.querySelectorAll('input[data-aadhaar-photo]'));
+    aadhaarPhotoInputs.forEach((input) => {
+      const file = input.files && input.files[0];
+      const subMatch = input.name.match(/^sub(\d+)AadhaarPhoto$/);
+
+      if (subMatch) {
+        const subNo = subMatch[1];
+        const subNameInput = form.querySelector(`[name="sub${subNo}Name"]`);
+        const subAadhaarInput = form.querySelector(`[name="sub${subNo}Aadhaar"]`);
+        const hasSubName = !!(subNameInput && String(subNameInput.value || '').trim());
+        const hasSubAadhaar = !!(subAadhaarInput && String(subAadhaarInput.value || '').trim());
+
+        if (file && !hasSubName) {
+          addError(subNameInput || input, 'Substitute name is required when Aadhaar photo is entered.');
+        }
+
+        if (file && !hasSubAadhaar) {
+          addError(subAadhaarInput || input, 'Substitute Aadhaar is required when Aadhaar photo is entered.');
+        }
+
+        if ((hasSubName || hasSubAadhaar) && !file) {
+          addError(input, 'Substitute Aadhaar Photo is required when substitute details are entered.');
+          return;
+        }
+      }
+
+      if (!file) return;
+
+      if (!isSupportedAadhaarPhotoFile(file)) {
+        addError(input, `${getFieldLabel(input)} must be JPG, JPEG, or PNG.`);
+        return;
+      }
+
+      if (file.size > aadhaarPhotoConfig.maxSizeBytes) {
+        addError(input, `${getFieldLabel(input)} must be ${getAadhaarPhotoLimitText()} or smaller.`);
+      }
+    });
+
     const seenInCurrentTeam = new Map();
     validAadhaarEntries.forEach((entry) => {
       if (!entry.digits) return;
@@ -2074,10 +2252,19 @@ function setupRegistrationForm() {
 
   form.addEventListener('change', (event) => {
     const target = event.target;
-    if (target instanceof HTMLInputElement && target.name === 'paymentStatus') {
-      setPaidAmountVisibility(target.value);
+    if (target instanceof HTMLInputElement) {
+      if (target.type === 'file') {
+        clearFieldError(target);
+        return;
+      }
+
+      if (target.name === 'paymentStatus') {
+        setPaidAmountVisibility(target.value);
+        clearFieldError(target);
+        return;
+      }
+
       clearFieldError(target);
-      return;
     }
 
     if (target instanceof HTMLSelectElement) {
@@ -2159,23 +2346,29 @@ function setupRegistrationForm() {
       const sameTeamCount = latestRegistrations.filter((r) => (r.teamName || '').toLowerCase() === teamName.toLowerCase()).length;
       const displayTeamName = sameTeamCount ? `${teamName} ${sameTeamCount + 1}` : teamName;
 
-      const mandatoryPlayers = Array.from({ length: 9 }, (_, i) => {
+      const mandatoryPlayers = await Promise.all(Array.from({ length: 9 }, async (_, i) => {
         const playerNo = i + 3;
+        const photoInput = form.querySelector(`[name="player${playerNo}AadhaarPhoto"]`);
+        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
         return {
           label: `Player ${playerNo}`,
           name: String(formData.get(`player${playerNo}Name`) || '').trim(),
-          aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim()
+          aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim(),
+          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(photoFile || null)
         };
-      });
+      }));
 
-      const substitutePlayers = Array.from({ length: 5 }, (_, i) => {
+      const substitutePlayers = await Promise.all(Array.from({ length: 5 }, async (_, i) => {
         const subNo = i + 1;
+        const photoInput = form.querySelector(`[name="sub${subNo}AadhaarPhoto"]`);
+        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
         return {
           label: `Substitute ${subNo}`,
           name: String(formData.get(`sub${subNo}Name`) || '').trim(),
-          aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim()
+          aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim(),
+          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(photoFile || null)
         };
-      });
+      }));
 
       const paymentStatus = String(formData.get('paymentStatus') || '').trim();
       const paidAmount = String(formData.get('paidAmount') || '').trim();
@@ -2248,12 +2441,18 @@ function setupRegistrationForm() {
         captain: {
           name: String(formData.get('captainName') || '').trim(),
           phone: String(formData.get('captainPhone') || '').trim(),
-          aadhaar: String(formData.get('captainAadhaar') || '').trim()
+          aadhaar: String(formData.get('captainAadhaar') || '').trim(),
+          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(
+            form.querySelector('[name="captainAadhaarPhoto"]')?.files?.[0] || null
+          )
         },
         vc: {
           name: String(formData.get('vcName') || '').trim(),
           phone: String(formData.get('vcPhone') || '').trim(),
-          aadhaar: String(formData.get('vcAadhaar') || '').trim()
+          aadhaar: String(formData.get('vcAadhaar') || '').trim(),
+          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(
+            form.querySelector('[name="vcAadhaarPhoto"]')?.files?.[0] || null
+          )
         },
         paymentStatus,
         paidAmount: paymentStatus === 'Paid' ? paidAmount : '',
