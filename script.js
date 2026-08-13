@@ -228,9 +228,20 @@ function normalizeRegistrationRecord(record) {
 
 function isSupportedAadhaarPhotoFile(file) {
   if (!(file instanceof File)) return false;
-  const type = String(file.type || '').toLowerCase();
-  if (aadhaarPhotoConfig.allowedTypes.includes(type)) return true;
-  return /\.(jpe?g|png)$/i.test(String(file.name || ''));
+  return !!resolveAadhaarPhotoMimeType(file);
+}
+
+function resolveAadhaarPhotoMimeType(file) {
+  if (!(file instanceof File)) return '';
+
+  const reportedType = String(file.type || '').trim().toLowerCase();
+  if (aadhaarPhotoConfig.allowedTypes.includes(reportedType)) return reportedType;
+
+  const fileName = String(file.name || '').trim().toLowerCase();
+  if (/\.png$/i.test(fileName)) return 'image/png';
+  if (/\.jpe?g$/i.test(fileName)) return 'image/jpeg';
+
+  return '';
 }
 
 function getAadhaarPhotoLimitText() {
@@ -248,9 +259,14 @@ function readFileAsDataUrl(file) {
 
 async function buildAadhaarPhotoUpload(file) {
   if (!(file instanceof File)) return null;
+  const contentType = resolveAadhaarPhotoMimeType(file);
+  if (!contentType) {
+    throw new Error('UNSUPPORTED_AADHAAR_IMAGE_TYPE');
+  }
+
   return {
     fileName: String(file.name || '').trim(),
-    contentType: String(file.type || '').trim(),
+    contentType,
     dataUrl: await readFileAsDataUrl(file)
   };
 }
@@ -2491,10 +2507,22 @@ function setupRegistrationForm() {
             return;
           }
 
+          const code = String(error?.code || error?.message || '').toUpperCase();
+          const errorMessage = String(error?.message || '');
+
           if (statusNode) {
-            statusNode.textContent = 'Unable to submit registration now. Please try again.';
+            if (code.includes('UNSUPPORTED_AADHAAR_IMAGE_TYPE')) {
+              statusNode.textContent = 'One or more Aadhaar photos are not JPG/JPEG/PNG. Please re-select valid images and submit again.';
+            } else if (code.includes('AADHAAR_IMAGE_TOO_LARGE')) {
+              statusNode.textContent = `One or more Aadhaar photos exceed ${getAadhaarPhotoLimitText()}. Please reduce image size and submit again.`;
+            } else if (errorMessage) {
+              statusNode.textContent = `Unable to submit registration now. ${errorMessage}`;
+            } else {
+              statusNode.textContent = 'Unable to submit registration now. Please try again.';
+            }
             statusNode.classList.add('error');
           }
+
           return;
         }
       } else {
