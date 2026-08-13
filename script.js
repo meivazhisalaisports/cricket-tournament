@@ -183,9 +183,11 @@ function normalizeAadhaarPhotoMeta(photo) {
   const fileId = String(photo.fileId || '').trim();
   const fileName = String(photo.fileName || '').trim();
   const dataUrl = String(photo.dataUrl || photo.previewDataUrl || '').trim();
-  const downloadUrl = String(photo.downloadUrl || '').trim() || (fileId
+  const rawDownloadUrl = String(photo.downloadUrl || '').trim();
+  const normalizedDownloadUrl = /^data:image\//i.test(rawDownloadUrl) ? '' : rawDownloadUrl;
+  const downloadUrl = normalizedDownloadUrl || (fileId
     ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
-    : dataUrl);
+    : '');
 
   if (!fileId && !downloadUrl && !fileName && !dataUrl) return null;
   return { fileId, fileName, downloadUrl, dataUrl, previewDataUrl: dataUrl };
