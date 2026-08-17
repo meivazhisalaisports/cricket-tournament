@@ -1765,9 +1765,12 @@ function setupTeamDetailModal() {
             paymentSaveButton.classList.add('btn-primary');
           }, 5000);
         })
-        .catch(() => {
+        .catch((error) => {
+          const reason = String(error?.message || '').trim();
           if (paymentMessage) {
-            paymentMessage.textContent = 'Unable to save payment details. Please try again.';
+            paymentMessage.textContent = reason
+              ? `Unable to save payment details: ${reason}`
+              : 'Unable to save payment details. Please try again.';
             paymentMessage.className = 'form-status error';
           }
         })
