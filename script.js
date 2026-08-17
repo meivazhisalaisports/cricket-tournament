@@ -1619,6 +1619,23 @@ function setupTeamDetailModal() {
       </section>
 
       <section class="team-detail-group">
+        <h4>Payment</h4>
+        <div class="team-detail-payment-editor">
+          <label>Payment Status
+            <select data-team-payment-status>
+              <option value="Paid" ${entry.paymentStatus === 'Paid' ? 'selected' : ''}>Paid</option>
+              <option value="Not paid" ${entry.paymentStatus === 'Not paid' || !entry.paymentStatus ? 'selected' : ''}>Not paid</option>
+            </select>
+          </label>
+          <label>Paid Amount
+            <input type="text" data-team-paid-amount value="${escapeHtml(entry.paidAmount || '')}" inputmode="numeric" placeholder="Enter total amount paid" />
+          </label>
+          <button type="button" class="btn btn-primary" data-team-payment-save>Save Payment</button>
+          <p class="form-status" data-team-payment-status-message></p>
+        </div>
+      </section>
+
+      <section class="team-detail-group">
         <h4>Captain</h4>
         <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.captain.name)}</span></div>
         <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.captain.phone)}</span></div>
@@ -1630,12 +1647,6 @@ function setupTeamDetailModal() {
         <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.vc.name)}</span></div>
         <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.vc.phone)}</span></div>
         <div class="team-detail-row"><span>Aadhaar</span><span>${entry.vc.aadhaar}</span></div>
-      </section>
-
-      <section class="team-detail-group">
-        <h4>Payment</h4>
-        <div class="team-detail-row"><span>Payment Status</span><span>${escapeHtml(entry.paymentStatus || '-')}</span></div>
-        <div class="team-detail-row"><span>Paid Amount</span><span>${escapeHtml(entry.paymentStatus === 'Paid' ? (entry.paidAmount || '-') : '-')}</span></div>
       </section>
 
       <section class="team-detail-group">
@@ -1672,9 +1683,10 @@ function setupTeamDetailModal() {
   });
 
   actionWrap.addEventListener('click', (event) => {
+    const paymentSaveButton = event.target.closest('[data-team-payment-save]');
     const approveButton = event.target.closest('[data-team-approve]');
     const rejectButton = event.target.closest('[data-team-reject]');
-    if (!approveButton && !rejectButton) return;
+    if (!paymentSaveButton && !approveButton && !rejectButton) return;
 
     const actionStatus = actionWrap.querySelector('[data-team-action-status]');
 
@@ -1683,6 +1695,87 @@ function setupTeamDetailModal() {
 
     const registrations = getRegistrations();
     if (!registrations[index]) return;
+
+    if (paymentSaveButton) {
+      const statusInput = detailBody.querySelector('[data-team-payment-status]');
+      const amountInput = detailBody.querySelector('[data-team-paid-amount]');
+      const paymentMessage = detailBody.querySelector('[data-team-payment-status-message]');
+      const paymentStatus = String(statusInput?.value || '').trim();
+      const paidAmount = String(amountInput?.value || '').replace(/\D/g, '');
+
+      if (!['Paid', 'Not paid'].includes(paymentStatus)) {
+        if (paymentMessage) {
+          paymentMessage.textContent = 'Select a valid payment status.';
+          paymentMessage.className = 'form-status error';
+        }
+        return;
+      }
+
+      if (paymentStatus === 'Paid' && !paidAmount) {
+        if (paymentMessage) {
+          paymentMessage.textContent = 'Paid Amount is required when status is Paid.';
+          paymentMessage.className = 'form-status error';
+        }
+        amountInput?.focus();
+        return;
+      }
+
+      paymentSaveButton.disabled = true;
+      if (paymentMessage) {
+        paymentMessage.textContent = 'Saving payment details...';
+        paymentMessage.className = 'form-status';
+      }
+
+      const updatedPayment = {
+        paymentStatus,
+        paidAmount: paymentStatus === 'Paid' ? paidAmount : ''
+      };
+      const payload = buildProtectedPayload({
+        action: 'updateRegistrationPayment',
+        id: registrations[index].id,
+        ...updatedPayment
+      });
+
+      if (!payload) {
+        paymentSaveButton.disabled = false;
+        if (paymentMessage) {
+          paymentMessage.textContent = 'Admin login is required.';
+          paymentMessage.className = 'form-status error';
+        }
+        return;
+      }
+
+      cloudPost(payload)
+        .then(() => {
+          registrations[index].paymentStatus = updatedPayment.paymentStatus;
+          registrations[index].paidAmount = updatedPayment.paidAmount;
+          saveRegistrations(registrations, { skipCloudSync: true });
+          renderTeamApprovalCards();
+          if (paymentMessage) {
+            paymentMessage.textContent = 'Payment details saved.';
+            paymentMessage.className = 'form-status success';
+          }
+          paymentSaveButton.textContent = 'Saved';
+          paymentSaveButton.classList.remove('btn-primary');
+          paymentSaveButton.classList.add('btn-success');
+          window.setTimeout(() => {
+            if (!paymentSaveButton.isConnected) return;
+            paymentSaveButton.textContent = 'Save Payment';
+            paymentSaveButton.classList.remove('btn-success');
+            paymentSaveButton.classList.add('btn-primary');
+          }, 5000);
+        })
+        .catch(() => {
+          if (paymentMessage) {
+            paymentMessage.textContent = 'Unable to save payment details. Please try again.';
+            paymentMessage.className = 'form-status error';
+          }
+        })
+        .finally(() => {
+          paymentSaveButton.disabled = false;
+        });
+      return;
+    }
 
     if (approveButton) {
       const approvedCount = registrations.filter((item) => item.status === 'approved').length;
