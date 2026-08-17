@@ -152,6 +152,11 @@ async function cloudFetchAllData() {
 
 async function cloudPost(payload) {
   if (!isCloudEnabled()) return;
+
+  if (payload?.action === 'updateRegistrationPayment') {
+    return submitPaymentUpdateThroughForm(payload);
+  }
+
   let lastError = null;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -195,6 +200,62 @@ async function cloudPost(payload) {
   }
 
   throw lastError || new Error('Cloud write failed.');
+}
+
+function submitPaymentUpdateThroughForm(payload) {
+  return new Promise((resolve, reject) => {
+    const frameName = `payment-update-${Date.now()}`;
+    const iframe = document.createElement('iframe');
+    iframe.name = frameName;
+    iframe.hidden = true;
+    iframe.setAttribute('aria-hidden', 'true');
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = cloudConfig.webAppUrl;
+    form.target = frameName;
+    form.style.display = 'none';
+
+    const payloadInput = document.createElement('input');
+    payloadInput.type = 'hidden';
+    payloadInput.name = 'payload';
+    payloadInput.value = JSON.stringify(payload);
+    form.appendChild(payloadInput);
+    document.body.append(iframe, form);
+    let submitted = false;
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      window.setTimeout(() => {
+        iframe.remove();
+        form.remove();
+      }, 250);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Payment update timed out. Please check the deployed Apps Script.'));
+    }, 10000);
+
+    iframe.addEventListener('load', async () => {
+      cleanup();
+      try {
+        const data = await cloudFetchAllData();
+        const updated = parseCloudRegistrations(data?.registrations)
+          .find((registration) => registration.id === String(payload.id));
+        if (!updated || updated.paymentStatus !== payload.paymentStatus || updated.paidAmount !== payload.paidAmount) {
+          throw new Error('Payment update was not confirmed by the shared data.');
+        }
+        resolve({ ok: true });
+      } catch (error) {
+          if (!submitted) return;
+        reject(error);
+      }
+    }, { once: true });
+
+    submitted = true;
+    form.submit();
+  });
 }
 
 function parseCloudRegistrations(rows) {
