@@ -140,7 +140,7 @@ function isCloudEnabled() {
 
 async function cloudFetchAllData() {
   if (!isCloudEnabled()) return null;
-  const response = await fetch(`${cloudConfig.webAppUrl}?action=allData&_=${Date.now()}`, {
+  const response = await fetch(`${cloudConfig.webAppUrl}?action=allData`, {
     method: 'GET',
     cache: 'no-store'
   });
@@ -152,10 +152,6 @@ async function cloudFetchAllData() {
 
 async function cloudPost(payload) {
   if (!isCloudEnabled()) return;
-
-  if (payload?.action === 'updateRegistrationPayment') {
-    return submitPaymentUpdateThroughForm(payload);
-  }
 
   let lastError = null;
 
@@ -184,85 +180,32 @@ async function cloudPost(payload) {
     }
   }
 
-  const isFetchTransportError = lastError && (
-    lastError.name === 'TypeError' || /failed to fetch|networkerror/i.test(String(lastError.message || ''))
-  );
-  if (payload?.action === 'updateRegistrationPayment' && isFetchTransportError) {
-    await fetch(cloudConfig.webAppUrl, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
-      body: JSON.stringify(payload)
-    });
-    return { ok: true, unverified: true };
-  }
-
   throw lastError || new Error('Cloud write failed.');
 }
 
-function submitPaymentUpdateThroughForm(payload) {
-  return new Promise((resolve, reject) => {
-    const frameName = `payment-update-${Date.now()}`;
-    const iframe = document.createElement('iframe');
-    iframe.name = frameName;
-    iframe.hidden = true;
-    iframe.setAttribute('aria-hidden', 'true');
+async function updateRegistrationPayment(payload) {
+  if (!isCloudEnabled()) throw new Error('Cloud service is not configured.');
 
-    const form = document.createElement('form');
-    form.method = 'GET';
-    form.action = cloudConfig.webAppUrl;
-    form.target = frameName;
-    form.style.display = 'none';
-
-    Object.entries(payload).forEach(([key, value]) => {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = key;
-      input.value = String(value ?? '');
-      form.appendChild(input);
-    });
-    document.body.append(iframe, form);
-    let submitted = false;
-
-    const cleanup = () => {
-      window.clearTimeout(timeoutId);
-      window.setTimeout(() => {
-        iframe.remove();
-        form.remove();
-      }, 250);
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('Payment update timed out. Please check the deployed Apps Script.'));
-    }, 10000);
-
-    iframe.addEventListener('load', async () => {
-      if (!submitted) return;
-      cleanup();
-      try {
-        const expectedId = String(payload.id);
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          const data = await cloudFetchAllData();
-          const updated = parseCloudRegistrations(data?.registrations)
-            .find((registration) => registration.id === expectedId);
-          if (updated && updated.paymentStatus === payload.paymentStatus && updated.paidAmount === payload.paidAmount) {
-            resolve({ ok: true });
-            return;
-          }
-          await new Promise((wait) => window.setTimeout(wait, 750));
-        }
-        throw new Error('Payment update was not confirmed by the shared data.');
-      } catch (error) {
-        reject(error);
-      }
-    }, { once: true });
-
-    submitted = true;
-    form.submit();
+  const query = new URLSearchParams({
+    action: 'updateRegistrationPayment',
+    id: String(payload.id || ''),
+    paymentStatus: String(payload.paymentStatus || ''),
+    paidAmount: String(payload.paidAmount || ''),
+    adminUser: String(payload.adminUser || ''),
+    adminPass: String(payload.adminPass || '')
   });
+  const response = await fetch(`${cloudConfig.webAppUrl}?${query.toString()}`, {
+    method: 'GET',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Payment update failed: ${response.status}`);
+  const result = await response.json();
+  if (!result || result.ok !== true) {
+    const error = new Error(result?.message || result?.error || 'Payment update failed.');
+    error.code = result?.error || 'PAYMENT_UPDATE_FAILED';
+    throw error;
+  }
+  return result;
 }
 
 function parseCloudRegistrations(rows) {
@@ -1815,24 +1758,8 @@ function setupTeamDetailModal() {
         return;
       }
 
-      paymentSaveButton.disabled = true;
-      if (paymentMessage) {
-        paymentMessage.textContent = 'Saving payment details...';
-        paymentMessage.className = 'form-status';
-      }
-
-      const updatedPayment = {
-        paymentStatus,
-        paidAmount: paymentStatus === 'Paid' ? paidAmount : ''
-      };
-      const payload = buildProtectedPayload({
-        action: 'updateRegistrationPayment',
-        id: registrations[index].id,
-        ...updatedPayment
-      });
-
-      if (!payload) {
-        paymentSaveButton.disabled = false;
+      const session = getAdminSession();
+      if (!session) {
         if (paymentMessage) {
           paymentMessage.textContent = 'Admin login is required.';
           paymentMessage.className = 'form-status error';
@@ -1840,10 +1767,21 @@ function setupTeamDetailModal() {
         return;
       }
 
-      cloudPost(payload)
+      paymentSaveButton.disabled = true;
+      if (paymentMessage) {
+        paymentMessage.textContent = 'Saving payment details...';
+        paymentMessage.className = 'form-status';
+      }
+
+      updateRegistrationPayment({
+        id: registrations[index].id,
+        paymentStatus,
+        paidAmount: paymentStatus === 'Paid' ? paidAmount : '',
+        ...session
+      })
         .then(() => {
-          registrations[index].paymentStatus = updatedPayment.paymentStatus;
-          registrations[index].paidAmount = updatedPayment.paidAmount;
+          registrations[index].paymentStatus = paymentStatus;
+          registrations[index].paidAmount = paymentStatus === 'Paid' ? paidAmount : '';
           saveRegistrations(registrations, { skipCloudSync: true });
           renderTeamApprovalCards();
           if (paymentMessage) {
@@ -1861,11 +1799,8 @@ function setupTeamDetailModal() {
           }, 5000);
         })
         .catch((error) => {
-          const reason = String(error?.message || '').trim();
           if (paymentMessage) {
-            paymentMessage.textContent = reason
-              ? `Unable to save payment details: ${reason}`
-              : 'Unable to save payment details. Check the deployed Apps Script and try again.';
+            paymentMessage.textContent = `Unable to save payment details: ${String(error?.message || 'Please try again.')}`;
             paymentMessage.className = 'form-status error';
           }
         })
