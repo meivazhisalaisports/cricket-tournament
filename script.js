@@ -44,17 +44,10 @@ const storageKeys = {
   teamSlots: 'msvl_team_slots',
   matchWinners: 'msvl_match_winners',
   resultsMeta: 'msvl_results_meta',
-  aadhaarPreviews: 'msvl_aadhaar_previews'
 };
 
 const cloudConfig = {
   webAppUrl: 'https://script.google.com/macros/s/AKfycbxWUqHHNbzPO7TiwXjq6J6bvd6nVQ0Bdme1-VCpYoTXqslTgssP0WPDXIdOipCyVUQe/exec'
-};
-
-const aadhaarPhotoConfig = {
-  acceptAttr: '.jpg,.jpeg,.png,image/jpeg,image/png',
-  maxSizeBytes: 2 * 1024 * 1024,
-  allowedTypes: ['image/jpeg', 'image/png']
 };
 
 const teamTypeConfig = {
@@ -177,226 +170,6 @@ async function cloudPost(payload) {
   return result;
 }
 
-function normalizeAadhaarPhotoMeta(photo) {
-  if (!photo || typeof photo !== 'object') return null;
-
-  const fileId = String(photo.fileId || '').trim();
-  const fileName = String(photo.fileName || '').trim();
-  const dataUrl = String(photo.dataUrl || photo.previewDataUrl || '').trim();
-  const rawDownloadUrl = String(photo.downloadUrl || '').trim();
-  const normalizedDownloadUrl = /^data:image\//i.test(rawDownloadUrl) ? '' : rawDownloadUrl;
-  const downloadUrl = normalizedDownloadUrl || (fileId
-    ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
-    : '');
-
-  if (!fileId && !downloadUrl && !fileName && !dataUrl) return null;
-  return { fileId, fileName, downloadUrl, dataUrl, previewDataUrl: dataUrl };
-}
-
-function normalizePersonRecord(person, fallback) {
-  const source = person && typeof person === 'object' ? person : {};
-  const defaults = fallback && typeof fallback === 'object' ? fallback : {};
-
-  return {
-    label: String(source.label || defaults.label || '').trim(),
-    name: String(source.name || defaults.name || '').trim(),
-    phone: String(source.phone || defaults.phone || '').trim(),
-    aadhaar: String(source.aadhaar || defaults.aadhaar || '').trim(),
-    aadhaarPhoto: normalizeAadhaarPhotoMeta(source.aadhaarPhoto || defaults.aadhaarPhoto)
-  };
-}
-
-function normalizeRegistrationRecord(record) {
-  const source = record && typeof record === 'object' ? record : {};
-  return {
-    ...source,
-    id: String(source.id || '').trim(),
-    createdAt: String(source.createdAt || new Date().toISOString()),
-    status: String(source.status || 'pending').trim() || 'pending',
-    teamName: String(source.teamName || '').trim(),
-    displayTeamName: String(source.displayTeamName || source.teamName || '').trim(),
-    teamLocation: String(source.teamLocation || '').trim(),
-    teamType: resolveTeamTypeLabel(source.teamType || '') || String(source.teamType || '').trim(),
-    paymentStatus: String(source.paymentStatus || '').trim(),
-    paidAmount: String(source.paidAmount || '').trim(),
-    captain: normalizePersonRecord(source.captain),
-    vc: normalizePersonRecord(source.vc),
-    mandatoryPlayers: Array.isArray(source.mandatoryPlayers)
-      ? source.mandatoryPlayers.map((person, index) => normalizePersonRecord(person, { label: `Player ${index + 3}` }))
-      : [],
-    substitutePlayers: Array.isArray(source.substitutePlayers)
-      ? source.substitutePlayers.map((person, index) => normalizePersonRecord(person, { label: `Substitute ${index + 1}` }))
-      : []
-  };
-}
-
-function isSupportedAadhaarPhotoFile(file) {
-  if (!(file instanceof File)) return false;
-  return !!resolveAadhaarPhotoMimeType(file);
-}
-
-function resolveAadhaarPhotoMimeType(file) {
-  if (!(file instanceof File)) return '';
-
-  const reportedType = String(file.type || '').trim().toLowerCase();
-  if (aadhaarPhotoConfig.allowedTypes.includes(reportedType)) return reportedType;
-
-  const fileName = String(file.name || '').trim().toLowerCase();
-  if (/\.png$/i.test(fileName)) return 'image/png';
-  if (/\.jpe?g$/i.test(fileName)) return 'image/jpeg';
-
-  return '';
-}
-
-function getAadhaarPhotoLimitText() {
-  return `${Math.round(aadhaarPhotoConfig.maxSizeBytes / (1024 * 1024))} MB`;
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Unable to read file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function buildAadhaarPhotoUpload(file) {
-  if (!(file instanceof File)) return null;
-  const contentType = resolveAadhaarPhotoMimeType(file);
-  if (!contentType) {
-    throw new Error('UNSUPPORTED_AADHAAR_IMAGE_TYPE');
-  }
-
-  const previewDataUrl = await buildAadhaarPhotoPreview(file, { maxSide: 110, quality: 0.5 });
-
-  return {
-    fileName: String(file.name || '').trim(),
-    contentType,
-    previewDataUrl
-  };
-}
-
-async function buildAadhaarPhotoPreview(file, options) {
-  if (!(file instanceof File)) return '';
-
-  const maxSide = Number(options?.maxSide) > 0 ? Number(options.maxSide) : 260;
-  const quality = Number(options?.quality) > 0 && Number(options?.quality) <= 1
-    ? Number(options.quality)
-    : 0.72;
-
-  try {
-    const dataUrl = await readFileAsDataUrl(file);
-    return await compressPreviewDataUrl(dataUrl, maxSide, quality);
-  } catch (error) {
-    return '';
-  }
-}
-
-function compressPreviewDataUrl(dataUrl, maxSide, quality) {
-  return new Promise((resolve) => {
-    const src = String(dataUrl || '').trim();
-    if (!src.startsWith('data:image/')) {
-      resolve('');
-      return;
-    }
-
-    const image = new Image();
-    image.onload = () => {
-      const width = Number(image.naturalWidth || image.width || 0);
-      const height = Number(image.naturalHeight || image.height || 0);
-      if (!width || !height) {
-        resolve(src);
-        return;
-      }
-
-      const scale = Math.min(1, maxSide / Math.max(width, height));
-      const targetWidth = Math.max(1, Math.round(width * scale));
-      const targetHeight = Math.max(1, Math.round(height * scale));
-
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(src);
-        return;
-      }
-
-      ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-
-    image.onerror = () => resolve(src);
-    image.src = src;
-  });
-}
-
-function getAadhaarPreviewStore() {
-  try {
-    const raw = window.localStorage.getItem(storageKeys.aadhaarPreviews);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch (error) {
-    return {};
-  }
-}
-
-function saveAadhaarPreviewStore(store) {
-  window.localStorage.setItem(storageKeys.aadhaarPreviews, JSON.stringify(store || {}));
-}
-
-function saveRegistrationAadhaarPreviews(registrationId, previews) {
-  const id = String(registrationId || '').trim();
-  if (!id || !previews || typeof previews !== 'object') return;
-
-  const hasPreview = Object.values(previews).some((value) => typeof value === 'string' && value.startsWith('data:image/'));
-  if (!hasPreview) return;
-
-  const store = getAadhaarPreviewStore();
-  store[id] = previews;
-  saveAadhaarPreviewStore(store);
-}
-
-function getRegistrationAadhaarPreviews(registrationId) {
-  const id = String(registrationId || '').trim();
-  if (!id) return {};
-  const store = getAadhaarPreviewStore();
-  const item = store[id];
-  return item && typeof item === 'object' && !Array.isArray(item) ? item : {};
-}
-
-function buildAadhaarPhotoDownloadMarkup(photo, fileLabel, previewDataUrl) {
-  const normalized = normalizeAadhaarPhotoMeta(photo);
-  if (!normalized?.downloadUrl) {
-    const preview = String(previewDataUrl || normalized?.previewDataUrl || normalized?.dataUrl || '').trim();
-    if (preview.startsWith('data:image/')) {
-      return `
-        <span class="team-detail-value-stack">
-          <span class="team-detail-empty-note">Preview image (download unavailable in current storage mode).</span>
-          <img src="${escapeHtml(preview)}" alt="${escapeHtml(fileLabel || 'Aadhaar preview')}" style="max-width:180px;max-height:120px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);object-fit:cover;" loading="lazy" />
-        </span>
-      `;
-    }
-
-    if (normalized?.fileName) {
-      return `<span class="team-detail-empty-note">Uploaded file: ${escapeHtml(normalized.fileName)} (download unavailable in current storage mode).</span>`;
-    }
-    return '<span class="team-detail-empty-note">No Aadhaar photo uploaded.</span>';
-  }
-
-  const downloadName = normalized.fileName || `${fileLabel || 'aadhaar'}-aadhaar`;
-  return `
-    <a
-      class="btn btn-secondary btn-download-link"
-      href="${escapeHtml(normalized.downloadUrl)}"
-      target="_blank"
-      rel="noopener noreferrer"
-      download="${escapeHtml(downloadName)}"
-    >Download Aadhaar</a>
-  `;
-}
-
 function parseCloudRegistrations(rows) {
   if (!Array.isArray(rows)) return [];
 
@@ -415,7 +188,7 @@ function parseCloudRegistrations(rows) {
         aadhaar: String(row.captainAadhaar || '').trim()
       };
 
-      const record = normalizeRegistrationRecord({
+      const record = {
         id: String(row.id || details.id || '').trim(),
         createdAt: String(row.createdAt || details.createdAt || new Date().toISOString()),
         status: String(row.status || details.status || 'pending').trim() || 'pending',
@@ -429,7 +202,7 @@ function parseCloudRegistrations(rows) {
         vc: details.vc && typeof details.vc === 'object' ? details.vc : { name: '', phone: '', aadhaar: '' },
         mandatoryPlayers: Array.isArray(details.mandatoryPlayers) ? details.mandatoryPlayers : [],
         substitutePlayers: Array.isArray(details.substitutePlayers) ? details.substitutePlayers : []
-      });
+      };
 
       if (!record.id || !record.teamName) return null;
       if (record.status === 'removed') return null;
@@ -1516,19 +1289,10 @@ function getRegistrations() {
   try {
     const raw = window.localStorage.getItem(storageKeys.registrations);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map((item) => normalizeRegistrationRecord(item)) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     return [];
   }
-}
-
-function getPreviewKeyForPlayerLabel(label) {
-  const text = String(label || '').trim();
-  const player = text.match(/^Player\s+(\d+)$/i);
-  if (player) return `player${player[1]}`;
-  const substitute = text.match(/^Substitute\s+(\d+)$/i);
-  if (substitute) return `sub${substitute[1]}`;
-  return '';
 }
 
 function saveRegistrations(list, options) {
@@ -1827,18 +1591,10 @@ function setupTeamDetailModal() {
     const entry = registrations[index];
     if (!entry) return;
     modal.setAttribute('data-team-index', String(index));
-    const previewMap = getRegistrationAadhaarPreviews(entry.id);
-
     const mandatoryPlayers = entry.mandatoryPlayers
       .map(
         (p) => `
-          <div class="team-detail-row">
-            <span>${escapeHtml(p.label)}</span>
-            <span class="team-detail-value-stack">
-              <span>${escapeHtml(p.name || '-')} - ${escapeHtml(p.aadhaar || '-')}</span>
-              ${buildAadhaarPhotoDownloadMarkup(p.aadhaarPhoto, p.name || p.label, previewMap[getPreviewKeyForPlayerLabel(p.label)] || '')}
-            </span>
-          </div>
+          <div class="team-detail-row"><span>${p.label}</span><span>${p.name} - ${p.aadhaar}</span></div>
         `
       )
       .join('');
@@ -1847,13 +1603,7 @@ function setupTeamDetailModal() {
       .filter((p) => p.name || p.aadhaar)
       .map(
         (p) => `
-          <div class="team-detail-row">
-            <span>${escapeHtml(p.label)}</span>
-            <span class="team-detail-value-stack">
-              <span>${escapeHtml(p.name || '-')} - ${escapeHtml(p.aadhaar || '-')}</span>
-              ${buildAadhaarPhotoDownloadMarkup(p.aadhaarPhoto, p.name || p.label, previewMap[getPreviewKeyForPlayerLabel(p.label)] || '')}
-            </span>
-          </div>
+          <div class="team-detail-row"><span>${p.label}</span><span>${p.name || '-'} - ${p.aadhaar || '-'}</span></div>
         `
       )
       .join('');
@@ -1872,26 +1622,14 @@ function setupTeamDetailModal() {
         <h4>Captain</h4>
         <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.captain.name)}</span></div>
         <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.captain.phone)}</span></div>
-        <div class="team-detail-row">
-          <span>Aadhaar</span>
-          <span class="team-detail-value-stack">
-            <span>${escapeHtml(entry.captain.aadhaar)}</span>
-            ${buildAadhaarPhotoDownloadMarkup(entry.captain.aadhaarPhoto, entry.captain.name || 'captain', previewMap.captain || '')}
-          </span>
-        </div>
+        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.captain.aadhaar}</span></div>
       </section>
 
       <section class="team-detail-group">
         <h4>Vice Captain</h4>
         <div class="team-detail-row"><span>Name</span><span>${escapeHtml(entry.vc.name)}</span></div>
         <div class="team-detail-row"><span>Phone</span><span>${escapeHtml(entry.vc.phone)}</span></div>
-        <div class="team-detail-row">
-          <span>Aadhaar</span>
-          <span class="team-detail-value-stack">
-            <span>${escapeHtml(entry.vc.aadhaar)}</span>
-            ${buildAadhaarPhotoDownloadMarkup(entry.vc.aadhaarPhoto, entry.vc.name || 'vice-captain', previewMap.vc || '')}
-          </span>
-        </div>
+        <div class="team-detail-row"><span>Aadhaar</span><span>${entry.vc.aadhaar}</span></div>
       </section>
 
       <section class="team-detail-group">
@@ -2032,11 +1770,6 @@ function setupRegistrationForm() {
             <input id="player${playerNo}Aadhaar" type="text" name="player${playerNo}Aadhaar" required data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
             <span class="field-error" data-field-error></span>
           </div>
-          <div class="input-wrap">
-            <label class="field-mini-label" for="player${playerNo}AadhaarPhoto">Aadhaar Photo</label>
-            <input id="player${playerNo}AadhaarPhoto" type="file" name="player${playerNo}AadhaarPhoto" required data-aadhaar-photo accept="${aadhaarPhotoConfig.acceptAttr}" />
-            <span class="field-error" data-field-error></span>
-          </div>
         </div>
       `;
     }).join('');
@@ -2056,11 +1789,6 @@ function setupRegistrationForm() {
           <div class="input-wrap">
             <label class="field-mini-label" for="sub${subNo}Aadhaar">Aadhaar Number</label>
             <input id="sub${subNo}Aadhaar" type="text" name="sub${subNo}Aadhaar" data-aadhaar maxlength="14" inputmode="numeric" placeholder="xxxx xxxx xxxx" />
-            <span class="field-error" data-field-error></span>
-          </div>
-          <div class="input-wrap">
-            <label class="field-mini-label" for="sub${subNo}AadhaarPhoto">Aadhaar Photo</label>
-            <input id="sub${subNo}AadhaarPhoto" type="file" name="sub${subNo}AadhaarPhoto" data-aadhaar-photo accept="${aadhaarPhotoConfig.acceptAttr}" />
             <span class="field-error" data-field-error></span>
           </div>
         </div>
@@ -2104,9 +1832,7 @@ function setupRegistrationForm() {
     const row = input.closest('.player-row');
     if (row) {
       const rowTitle = row.querySelector('strong')?.textContent?.trim() || 'Player';
-      const isPhoto = /aadhaarphoto/i.test(input.name);
       const isAadhaar = /aadhaar/i.test(input.name);
-      if (isPhoto) return `${rowTitle} Aadhaar Photo`;
       return isAadhaar ? `${rowTitle} Aadhaar` : `${rowTitle} Name`;
     }
 
@@ -2281,44 +2007,6 @@ function setupRegistrationForm() {
       });
     });
 
-    const aadhaarPhotoInputs = Array.from(form.querySelectorAll('input[data-aadhaar-photo]'));
-    aadhaarPhotoInputs.forEach((input) => {
-      const file = input.files && input.files[0];
-      const subMatch = input.name.match(/^sub(\d+)AadhaarPhoto$/);
-
-      if (subMatch) {
-        const subNo = subMatch[1];
-        const subNameInput = form.querySelector(`[name="sub${subNo}Name"]`);
-        const subAadhaarInput = form.querySelector(`[name="sub${subNo}Aadhaar"]`);
-        const hasSubName = !!(subNameInput && String(subNameInput.value || '').trim());
-        const hasSubAadhaar = !!(subAadhaarInput && String(subAadhaarInput.value || '').trim());
-
-        if (file && !hasSubName) {
-          addError(subNameInput || input, 'Substitute name is required when Aadhaar photo is entered.');
-        }
-
-        if (file && !hasSubAadhaar) {
-          addError(subAadhaarInput || input, 'Substitute Aadhaar is required when Aadhaar photo is entered.');
-        }
-
-        if ((hasSubName || hasSubAadhaar) && !file) {
-          addError(input, 'Substitute Aadhaar Photo is required when substitute details are entered.');
-          return;
-        }
-      }
-
-      if (!file) return;
-
-      if (!isSupportedAadhaarPhotoFile(file)) {
-        addError(input, `${getFieldLabel(input)} must be JPG, JPEG, or PNG.`);
-        return;
-      }
-
-      if (file.size > aadhaarPhotoConfig.maxSizeBytes) {
-        addError(input, `${getFieldLabel(input)} must be ${getAadhaarPhotoLimitText()} or smaller.`);
-      }
-    });
-
     const seenInCurrentTeam = new Map();
     validAadhaarEntries.forEach((entry) => {
       if (!entry.digits) return;
@@ -2480,59 +2168,23 @@ function setupRegistrationForm() {
       const sameTeamCount = latestRegistrations.filter((r) => (r.teamName || '').toLowerCase() === teamName.toLowerCase()).length;
       const displayTeamName = sameTeamCount ? `${teamName} ${sameTeamCount + 1}` : teamName;
 
-      const mandatoryPlayers = await Promise.all(Array.from({ length: 9 }, async (_, i) => {
+      const mandatoryPlayers = Array.from({ length: 9 }, (_, i) => {
         const playerNo = i + 3;
-        const photoInput = form.querySelector(`[name="player${playerNo}AadhaarPhoto"]`);
-        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
         return {
           label: `Player ${playerNo}`,
           name: String(formData.get(`player${playerNo}Name`) || '').trim(),
-          aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim(),
-          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(photoFile || null)
+          aadhaar: String(formData.get(`player${playerNo}Aadhaar`) || '').trim()
         };
-      }));
+      });
 
-      const substitutePlayers = await Promise.all(Array.from({ length: 5 }, async (_, i) => {
+      const substitutePlayers = Array.from({ length: 5 }, (_, i) => {
         const subNo = i + 1;
-        const photoInput = form.querySelector(`[name="sub${subNo}AadhaarPhoto"]`);
-        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
         return {
           label: `Substitute ${subNo}`,
           name: String(formData.get(`sub${subNo}Name`) || '').trim(),
-          aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim(),
-          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(photoFile || null)
+          aadhaar: String(formData.get(`sub${subNo}Aadhaar`) || '').trim()
         };
-      }));
-
-      const aadhaarPreviewEntries = await Promise.all(Array.from({ length: 9 }, async (_, i) => {
-        const playerNo = i + 3;
-        const photoInput = form.querySelector(`[name="player${playerNo}AadhaarPhoto"]`);
-        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
-        return { key: `player${playerNo}`, value: await buildAadhaarPhotoPreview(photoFile || null, { maxSide: 260, quality: 0.72 }) };
-      }));
-
-      const substitutePreviewEntries = await Promise.all(Array.from({ length: 5 }, async (_, i) => {
-        const subNo = i + 1;
-        const photoInput = form.querySelector(`[name="sub${subNo}AadhaarPhoto"]`);
-        const photoFile = photoInput instanceof HTMLInputElement ? photoInput.files?.[0] : null;
-        return { key: `sub${subNo}`, value: await buildAadhaarPhotoPreview(photoFile || null, { maxSide: 260, quality: 0.72 }) };
-      }));
-
-      const captainPreview = await buildAadhaarPhotoPreview(
-        form.querySelector('[name="captainAadhaarPhoto"]')?.files?.[0] || null,
-        { maxSide: 260, quality: 0.72 }
-      );
-      const vcPreview = await buildAadhaarPhotoPreview(
-        form.querySelector('[name="vcAadhaarPhoto"]')?.files?.[0] || null,
-        { maxSide: 260, quality: 0.72 }
-      );
-
-      const aadhaarPreviewMap = {
-        captain: captainPreview,
-        vc: vcPreview,
-        ...Object.fromEntries(aadhaarPreviewEntries.map((entry) => [entry.key, entry.value])),
-        ...Object.fromEntries(substitutePreviewEntries.map((entry) => [entry.key, entry.value]))
-      };
+      });
 
       const paymentStatus = String(formData.get('paymentStatus') || '').trim();
       const paidAmount = String(formData.get('paidAmount') || '').trim();
@@ -2605,18 +2257,12 @@ function setupRegistrationForm() {
         captain: {
           name: String(formData.get('captainName') || '').trim(),
           phone: String(formData.get('captainPhone') || '').trim(),
-          aadhaar: String(formData.get('captainAadhaar') || '').trim(),
-          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(
-            form.querySelector('[name="captainAadhaarPhoto"]')?.files?.[0] || null
-          )
+          aadhaar: String(formData.get('captainAadhaar') || '').trim()
         },
         vc: {
           name: String(formData.get('vcName') || '').trim(),
           phone: String(formData.get('vcPhone') || '').trim(),
-          aadhaar: String(formData.get('vcAadhaar') || '').trim(),
-          aadhaarPhotoUpload: await buildAadhaarPhotoUpload(
-            form.querySelector('[name="vcAadhaarPhoto"]')?.files?.[0] || null
-          )
+          aadhaar: String(formData.get('vcAadhaar') || '').trim()
         },
         paymentStatus,
         paidAmount: paymentStatus === 'Paid' ? paidAmount : '',
@@ -2638,7 +2284,6 @@ function setupRegistrationForm() {
             status: record.status,
             createdAt: record.createdAt
           });
-          saveRegistrationAadhaarPreviews(record.id, aadhaarPreviewMap);
           await hydrateLocalStateFromCloud();
         } catch (error) {
           if (error?.code === 'TEAM_TYPE_LIMIT_REACHED') {
@@ -2656,19 +2301,8 @@ function setupRegistrationForm() {
             return;
           }
 
-          const code = String(error?.code || error?.message || '').toUpperCase();
-          const errorMessage = String(error?.message || '');
-
           if (statusNode) {
-            if (code.includes('UNSUPPORTED_AADHAAR_IMAGE_TYPE')) {
-              statusNode.textContent = 'One or more Aadhaar photos are not JPG/JPEG/PNG. Please re-select valid images and submit again.';
-            } else if (code.includes('AADHAAR_IMAGE_TOO_LARGE')) {
-              statusNode.textContent = `One or more Aadhaar photos exceed ${getAadhaarPhotoLimitText()}. Please reduce image size and submit again.`;
-            } else if (errorMessage) {
-              statusNode.textContent = `Unable to submit registration now. ${errorMessage}`;
-            } else {
-              statusNode.textContent = 'Unable to submit registration now. Please try again.';
-            }
+            statusNode.textContent = 'Unable to submit registration now. Please try again.';
             statusNode.classList.add('error');
           }
 
