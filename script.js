@@ -152,22 +152,34 @@ async function cloudFetchAllData() {
 
 async function cloudPost(payload) {
   if (!isCloudEnabled()) return;
-  const response = await fetch(cloudConfig.webAppUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain;charset=utf-8'
-    },
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) throw new Error(`Cloud write failed: ${response.status}`);
-  const result = await response.json();
-  if (!result || result.ok !== true) {
-    const error = new Error(result?.message || result?.error || 'Cloud write returned invalid response');
-    error.code = result?.error || 'CLOUD_WRITE_FAILED';
-    error.payload = result;
-    throw error;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(cloudConfig.webAppUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
+      });
+      if (!response.ok) throw new Error(`Cloud write failed: ${response.status}`);
+      const result = await response.json();
+      if (!result || result.ok !== true) {
+        const error = new Error(result?.message || result?.error || 'Cloud write returned invalid response');
+        error.code = result?.error || 'CLOUD_WRITE_FAILED';
+        error.payload = result;
+        throw error;
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1 || error?.code) throw error;
+    }
   }
-  return result;
+
+  throw lastError || new Error('Cloud write failed.');
 }
 
 function parseCloudRegistrations(rows) {
@@ -1770,7 +1782,7 @@ function setupTeamDetailModal() {
           if (paymentMessage) {
             paymentMessage.textContent = reason
               ? `Unable to save payment details: ${reason}`
-              : 'Unable to save payment details. Please try again.';
+              : 'Unable to save payment details. Check the deployed Apps Script and try again.';
             paymentMessage.className = 'form-status error';
           }
         })
