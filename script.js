@@ -179,6 +179,18 @@ async function cloudPost(payload) {
     }
   }
 
+  if (payload?.action === 'updateRegistrationPayment' && lastError?.name === 'TypeError') {
+    await fetch(cloudConfig.webAppUrl, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(payload)
+    });
+    return { ok: true, unverified: true };
+  }
+
   throw lastError || new Error('Cloud write failed.');
 }
 
