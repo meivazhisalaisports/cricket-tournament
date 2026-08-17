@@ -1682,7 +1682,7 @@ function setupTeamDetailModal() {
     modal.classList.add('open');
   });
 
-  actionWrap.addEventListener('click', (event) => {
+  modal.addEventListener('click', (event) => {
     const paymentSaveButton = event.target.closest('[data-team-payment-save]');
     const approveButton = event.target.closest('[data-team-approve]');
     const rejectButton = event.target.closest('[data-team-reject]');
