@@ -211,16 +211,18 @@ function submitPaymentUpdateThroughForm(payload) {
     iframe.setAttribute('aria-hidden', 'true');
 
     const form = document.createElement('form');
-    form.method = 'POST';
+    form.method = 'GET';
     form.action = cloudConfig.webAppUrl;
     form.target = frameName;
     form.style.display = 'none';
 
-    const payloadInput = document.createElement('input');
-    payloadInput.type = 'hidden';
-    payloadInput.name = 'payload';
-    payloadInput.value = JSON.stringify(payload);
-    form.appendChild(payloadInput);
+    Object.entries(payload).forEach(([key, value]) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = String(value ?? '');
+      form.appendChild(input);
+    });
     document.body.append(iframe, form);
     let submitted = false;
 
