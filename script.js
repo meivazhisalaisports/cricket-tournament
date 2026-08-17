@@ -140,7 +140,7 @@ function isCloudEnabled() {
 
 async function cloudFetchAllData() {
   if (!isCloudEnabled()) return null;
-  const response = await fetch(`${cloudConfig.webAppUrl}?action=allData`, {
+  const response = await fetch(`${cloudConfig.webAppUrl}?action=allData&_=${Date.now()}`, {
     method: 'GET',
     cache: 'no-store'
   });
@@ -238,17 +238,22 @@ function submitPaymentUpdateThroughForm(payload) {
     }, 10000);
 
     iframe.addEventListener('load', async () => {
+      if (!submitted) return;
       cleanup();
       try {
-        const data = await cloudFetchAllData();
-        const updated = parseCloudRegistrations(data?.registrations)
-          .find((registration) => registration.id === String(payload.id));
-        if (!updated || updated.paymentStatus !== payload.paymentStatus || updated.paidAmount !== payload.paidAmount) {
-          throw new Error('Payment update was not confirmed by the shared data.');
+        const expectedId = String(payload.id);
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          const data = await cloudFetchAllData();
+          const updated = parseCloudRegistrations(data?.registrations)
+            .find((registration) => registration.id === expectedId);
+          if (updated && updated.paymentStatus === payload.paymentStatus && updated.paidAmount === payload.paidAmount) {
+            resolve({ ok: true });
+            return;
+          }
+          await new Promise((wait) => window.setTimeout(wait, 750));
         }
-        resolve({ ok: true });
+        throw new Error('Payment update was not confirmed by the shared data.');
       } catch (error) {
-          if (!submitted) return;
         reject(error);
       }
     }, { once: true });
