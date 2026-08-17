@@ -175,11 +175,14 @@ async function cloudPost(payload) {
       return result;
     } catch (error) {
       lastError = error;
-      if (attempt === 1 || error?.code) throw error;
+      if (error?.code) throw error;
     }
   }
 
-  if (payload?.action === 'updateRegistrationPayment' && lastError?.name === 'TypeError') {
+  const isFetchTransportError = lastError && (
+    lastError.name === 'TypeError' || /failed to fetch|networkerror/i.test(String(lastError.message || ''))
+  );
+  if (payload?.action === 'updateRegistrationPayment' && isFetchTransportError) {
     await fetch(cloudConfig.webAppUrl, {
       method: 'POST',
       mode: 'no-cors',
