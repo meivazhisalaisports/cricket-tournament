@@ -192,7 +192,9 @@ async function updateRegistrationPayment(payload) {
     paymentStatus: String(payload.paymentStatus || ''),
     paidAmount: String(payload.paidAmount || ''),
     adminUser: String(payload.adminUser || ''),
-    adminPass: String(payload.adminPass || '')
+    adminPass: String(payload.adminPass || ''),
+    username: String(payload.adminUser || ''),
+    password: String(payload.adminPass || '')
   });
   const response = await fetch(`${cloudConfig.webAppUrl}?${query.toString()}`, {
     method: 'GET',
@@ -1343,12 +1345,14 @@ function saveRegistrations(list, options) {
 function getStatusLabel(status) {
   if (status === 'approved') return 'Approved';
   if (status === 'rejected') return 'Rejected';
+  if (status === 'waitlist') return 'Wait List';
   return 'Pending';
 }
 
 function getApprovalCardClass(status) {
   if (status === 'approved') return 'approval-card approval-card--approved';
   if (status === 'rejected') return 'approval-card approval-card--rejected';
+  if (status === 'waitlist') return 'approval-card approval-card--waitlist';
   return 'approval-card approval-card--pending';
 }
 
@@ -1702,9 +1706,11 @@ function setupTeamDetailModal() {
     const approvalLimitReached = entry.status !== 'approved' && approvedCount >= tournament.teams;
     const canApprove = entry.status !== 'approved' && !approvalLimitReached;
     const canReject = entry.status !== 'rejected';
+    const canWaitlist = entry.status !== 'waitlist';
     actionWrap.innerHTML = `
       <button type="button" class="btn btn-secondary" data-team-close>Close</button>
       <button type="button" class="btn btn-success" data-team-approve ${canApprove ? '' : 'disabled'}>Approve</button>
+      <button type="button" class="btn btn-waitlist" data-team-waitlist ${canWaitlist ? '' : 'disabled'}>Wait List</button>
       <button type="button" class="btn btn-danger" data-team-reject ${canReject ? '' : 'disabled'}>Reject</button>
       <p class="form-status ${approvalLimitReached ? 'error' : ''}" data-team-action-status>
         ${approvalLimitReached ? `Approval limit reached. Only ${tournament.teams} teams can be approved.` : ''}
@@ -1723,8 +1729,9 @@ function setupTeamDetailModal() {
   modal.addEventListener('click', (event) => {
     const paymentSaveButton = event.target.closest('[data-team-payment-save]');
     const approveButton = event.target.closest('[data-team-approve]');
+    const waitlistButton = event.target.closest('[data-team-waitlist]');
     const rejectButton = event.target.closest('[data-team-reject]');
-    if (!paymentSaveButton && !approveButton && !rejectButton) return;
+    if (!paymentSaveButton && !approveButton && !waitlistButton && !rejectButton) return;
 
     const actionStatus = actionWrap.querySelector('[data-team-action-status]');
 
@@ -1800,7 +1807,10 @@ function setupTeamDetailModal() {
         })
         .catch((error) => {
           if (paymentMessage) {
-            paymentMessage.textContent = `Unable to save payment details: ${String(error?.message || 'Please try again.')}`;
+            const reason = String(error?.message || 'Please try again.');
+            paymentMessage.textContent = /unauthorized/i.test(reason)
+              ? 'Admin session expired. Please logout and login again, then save payment.'
+              : `Unable to save payment details: ${reason}`;
             paymentMessage.className = 'form-status error';
           }
         })
@@ -1823,7 +1833,7 @@ function setupTeamDetailModal() {
       }
     }
 
-    registrations[index].status = approveButton ? 'approved' : 'rejected';
+    registrations[index].status = approveButton ? 'approved' : waitlistButton ? 'waitlist' : 'rejected';
     saveRegistrations(registrations);
     syncTeamSlotsWithRegistrations(registrations);
     renderTeamApprovalCards();
