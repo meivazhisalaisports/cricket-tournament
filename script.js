@@ -207,34 +207,27 @@ async function addRegistrationPayment(payload) {
   const session = getAdminSession();
   if (!session) throw new Error('Admin login is required.');
 
-  const id = String(payload.id || '');
-  const expectedTotal = Number(payload.expectedTotal || 0);
-
-  // Apps Script strips CORS headers from this response, so write opaquely and read the result back.
-  await fetch(cloudConfig.webAppUrl, {
+  const response = await fetch(cloudConfig.webAppUrl, {
     method: 'POST',
-    mode: 'no-cors',
     headers: {
       'Content-Type': 'text/plain;charset=utf-8'
     },
     body: JSON.stringify({
       action: 'addRegistrationPayment',
-      id,
+      id: String(payload.id || ''),
       additionalAmount: String(payload.additionalAmount || ''),
       adminUser: session.username,
       adminPass: session.password
     })
   });
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const cloudData = await cloudFetchAllData();
-    const record = parseCloudRegistrations(cloudData?.registrations).find((item) => item.id === id);
-    if (record && getPaidAmountValue(record) === expectedTotal) {
-      return { paidAmount: record.paidAmount, paymentStatus: record.paymentStatus };
-    }
-  }
+  if (!response.ok) throw new Error(`Payment update failed: ${response.status}`);
 
-  throw new Error('Amount was not saved. Check admin login and try again.');
+  const result = await response.json();
+  if (!result || result.ok !== true) {
+    throw new Error(result?.message || result?.error || 'Payment update failed.');
+  }
+  return result;
 }
 
 function parseCloudRegistrations(rows) {
@@ -1795,8 +1788,7 @@ function setupTeamDetailModal() {
 
       addRegistrationPayment({
         id: registrations[index].id,
-        additionalAmount,
-        expectedTotal: getPaidAmountValue(registrations[index]) + Number(additionalAmount)
+        additionalAmount
       })
         .then((result) => {
           const latest = getRegistrations();
