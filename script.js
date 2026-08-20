@@ -204,14 +204,37 @@ async function cloudPost(payload) {
 async function addRegistrationPayment(payload) {
   if (!isCloudEnabled()) throw new Error('Cloud service is not configured.');
 
-  const protectedPayload = buildProtectedPayload({
+  const session = getAdminSession();
+  if (!session) throw new Error('Admin login is required.');
+
+  const body = {
     action: 'addRegistrationPayment',
     id: String(payload.id || ''),
-    additionalAmount: String(payload.additionalAmount || '')
-  });
-  if (!protectedPayload) throw new Error('Admin login is required.');
+    additionalAmount: String(payload.additionalAmount || ''),
+    adminUser: session.username,
+    adminPass: session.password
+  };
 
-  return cloudPost(protectedPayload);
+  try {
+    return await cloudPost(body);
+  } catch (error) {
+    // Apps Script POST responses can lose CORS headers; GET is a simple request and survives.
+    if (error?.code) throw error;
+  }
+
+  const query = new URLSearchParams(body);
+  const response = await fetch(`${cloudConfig.webAppUrl}?${query.toString()}`, {
+    method: 'GET',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Payment update failed: ${response.status}`);
+  const result = await response.json();
+  if (!result || result.ok !== true) {
+    const error = new Error(result?.message || result?.error || 'Payment update failed.');
+    error.code = result?.error || 'PAYMENT_UPDATE_FAILED';
+    throw error;
+  }
+  return result;
 }
 
 function parseCloudRegistrations(rows) {
