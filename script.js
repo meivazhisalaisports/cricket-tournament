@@ -56,6 +56,24 @@ const teamTypeConfig = {
   singleVillage: 'Single Village Team'
 };
 
+const registrationFee = 10000;
+
+function getPaidAmountValue(entry) {
+  const digits = String(entry?.paidAmount || '').replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+}
+
+function formatAmount(value) {
+  return Number(value || 0).toLocaleString('en-IN');
+}
+
+function getPaymentSummaryLabel(entry) {
+  const amount = getPaidAmountValue(entry);
+  if (amount <= 0) return 'Not paid';
+  if (amount >= registrationFee) return `Fully Paid - Amount ${formatAmount(registrationFee)}`;
+  return `Paid - Amount (${formatAmount(amount)})`;
+}
+
 function normalizeTeamType(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -183,14 +201,13 @@ async function cloudPost(payload) {
   throw lastError || new Error('Cloud write failed.');
 }
 
-async function updateRegistrationPayment(payload) {
+async function addRegistrationPayment(payload) {
   if (!isCloudEnabled()) throw new Error('Cloud service is not configured.');
 
   const query = new URLSearchParams({
-    action: 'updateRegistrationPayment',
+    action: 'addRegistrationPayment',
     id: String(payload.id || ''),
-    paymentStatus: String(payload.paymentStatus || ''),
-    paidAmount: String(payload.paidAmount || ''),
+    additionalAmount: String(payload.additionalAmount || ''),
     adminUser: String(payload.adminUser || ''),
     adminPass: String(payload.adminPass || ''),
     username: String(payload.adminUser || ''),
@@ -1556,7 +1573,7 @@ function renderTeamApprovalCards() {
           <p>Base team: ${item.teamName}</p>
           <p>Location: ${item.teamLocation}</p>
           <p>Team Type: ${item.teamType || '-'}</p>
-          <p>Payment Status: ${item.paymentStatus || '-'}</p>
+          <p>Payment Status: ${getPaymentSummaryLabel(item)}</p>
           <p>Status: ${getStatusLabel(item.status)}</p>
           <button type="button" class="btn btn-secondary" data-team-view="${index}">View Details</button>
         </article>
@@ -1662,17 +1679,12 @@ function setupTeamDetailModal() {
 
       <section class="team-detail-group">
         <h4>Payment</h4>
+        <div class="team-detail-row"><span>Payment Status</span><span data-team-payment-summary>${escapeHtml(getPaymentSummaryLabel(entry))}</span></div>
         <div class="team-detail-payment-editor">
-          <label>Payment Status
-            <select data-team-payment-status>
-              <option value="Paid" ${entry.paymentStatus === 'Paid' ? 'selected' : ''}>Paid</option>
-              <option value="Not paid" ${entry.paymentStatus === 'Not paid' || !entry.paymentStatus ? 'selected' : ''}>Not paid</option>
-            </select>
+          <label>Additional Paid Amount
+            <input type="text" data-team-paid-amount inputmode="numeric" placeholder="Enter amount to add" />
           </label>
-          <label>Paid Amount
-            <input type="text" data-team-paid-amount value="${escapeHtml(entry.paidAmount || '')}" inputmode="numeric" placeholder="Enter total amount paid" />
-          </label>
-          <button type="button" class="btn btn-primary" data-team-payment-save>Save Payment</button>
+          <button type="button" class="btn btn-primary" data-team-payment-add>Add Paid Amount</button>
           <p class="form-status" data-team-payment-status-message></p>
         </div>
       </section>
@@ -1727,11 +1739,11 @@ function setupTeamDetailModal() {
   });
 
   modal.addEventListener('click', (event) => {
-    const paymentSaveButton = event.target.closest('[data-team-payment-save]');
+    const paymentAddButton = event.target.closest('[data-team-payment-add]');
     const approveButton = event.target.closest('[data-team-approve]');
     const waitlistButton = event.target.closest('[data-team-waitlist]');
     const rejectButton = event.target.closest('[data-team-reject]');
-    if (!paymentSaveButton && !approveButton && !waitlistButton && !rejectButton) return;
+    if (!paymentAddButton && !approveButton && !waitlistButton && !rejectButton) return;
 
     const actionStatus = actionWrap.querySelector('[data-team-action-status]');
 
@@ -1741,24 +1753,15 @@ function setupTeamDetailModal() {
     const registrations = getRegistrations();
     if (!registrations[index]) return;
 
-    if (paymentSaveButton) {
-      const statusInput = detailBody.querySelector('[data-team-payment-status]');
+    if (paymentAddButton) {
       const amountInput = detailBody.querySelector('[data-team-paid-amount]');
+      const summaryNode = detailBody.querySelector('[data-team-payment-summary]');
       const paymentMessage = detailBody.querySelector('[data-team-payment-status-message]');
-      const paymentStatus = String(statusInput?.value || '').trim();
-      const paidAmount = String(amountInput?.value || '').replace(/\D/g, '');
+      const additionalAmount = String(amountInput?.value || '').replace(/\D/g, '');
 
-      if (!['Paid', 'Not paid'].includes(paymentStatus)) {
+      if (!additionalAmount || Number(additionalAmount) <= 0) {
         if (paymentMessage) {
-          paymentMessage.textContent = 'Select a valid payment status.';
-          paymentMessage.className = 'form-status error';
-        }
-        return;
-      }
-
-      if (paymentStatus === 'Paid' && !paidAmount) {
-        if (paymentMessage) {
-          paymentMessage.textContent = 'Paid Amount is required when status is Paid.';
+          paymentMessage.textContent = 'Enter a valid amount to add.';
           paymentMessage.className = 'form-status error';
         }
         amountInput?.focus();
@@ -1774,48 +1777,48 @@ function setupTeamDetailModal() {
         return;
       }
 
-      paymentSaveButton.disabled = true;
+      paymentAddButton.disabled = true;
       if (paymentMessage) {
-        paymentMessage.textContent = 'Saving payment details...';
+        paymentMessage.textContent = 'Adding paid amount...';
         paymentMessage.className = 'form-status';
       }
 
-      updateRegistrationPayment({
+      addRegistrationPayment({
         id: registrations[index].id,
-        paymentStatus,
-        paidAmount: paymentStatus === 'Paid' ? paidAmount : '',
+        additionalAmount,
         ...session
       })
-        .then(() => {
-          registrations[index].paymentStatus = paymentStatus;
-          registrations[index].paidAmount = paymentStatus === 'Paid' ? paidAmount : '';
-          saveRegistrations(registrations, { skipCloudSync: true });
+        .then((result) => {
+          const latest = getRegistrations();
+          const target = latest.find((item) => item.id === registrations[index].id);
+          if (target) {
+            target.paidAmount = String(result.paidAmount || '');
+            target.paymentStatus = String(result.paymentStatus || '');
+            saveRegistrations(latest, { skipCloudSync: true });
+          }
+
+          if (summaryNode) {
+            summaryNode.textContent = getPaymentSummaryLabel({ paidAmount: result.paidAmount });
+          }
+          if (amountInput) amountInput.value = '';
           renderTeamApprovalCards();
+
           if (paymentMessage) {
-            paymentMessage.textContent = 'Payment details saved.';
+            paymentMessage.textContent = `Added ${formatAmount(Number(additionalAmount))}. Total paid: ${formatAmount(Number(String(result.paidAmount || '0').replace(/\D/g, '')))}.`;
             paymentMessage.className = 'form-status success';
           }
-          paymentSaveButton.textContent = 'Saved';
-          paymentSaveButton.classList.remove('btn-primary');
-          paymentSaveButton.classList.add('btn-success');
-          window.setTimeout(() => {
-            if (!paymentSaveButton.isConnected) return;
-            paymentSaveButton.textContent = 'Save Payment';
-            paymentSaveButton.classList.remove('btn-success');
-            paymentSaveButton.classList.add('btn-primary');
-          }, 5000);
         })
         .catch((error) => {
           if (paymentMessage) {
             const reason = String(error?.message || 'Please try again.');
             paymentMessage.textContent = /unauthorized/i.test(reason)
-              ? 'Admin session expired. Please logout and login again, then save payment.'
-              : `Unable to save payment details: ${reason}`;
+              ? 'Admin session expired. Please logout and login again, then add the amount.'
+              : `Unable to add paid amount: ${reason}`;
             paymentMessage.className = 'form-status error';
           }
         })
         .finally(() => {
-          paymentSaveButton.disabled = false;
+          paymentAddButton.disabled = false;
         });
       return;
     }
