@@ -204,27 +204,14 @@ async function cloudPost(payload) {
 async function addRegistrationPayment(payload) {
   if (!isCloudEnabled()) throw new Error('Cloud service is not configured.');
 
-  const query = new URLSearchParams({
+  const protectedPayload = buildProtectedPayload({
     action: 'addRegistrationPayment',
     id: String(payload.id || ''),
-    additionalAmount: String(payload.additionalAmount || ''),
-    adminUser: String(payload.adminUser || ''),
-    adminPass: String(payload.adminPass || ''),
-    username: String(payload.adminUser || ''),
-    password: String(payload.adminPass || '')
+    additionalAmount: String(payload.additionalAmount || '')
   });
-  const response = await fetch(`${cloudConfig.webAppUrl}?${query.toString()}`, {
-    method: 'GET',
-    cache: 'no-store'
-  });
-  if (!response.ok) throw new Error(`Payment update failed: ${response.status}`);
-  const result = await response.json();
-  if (!result || result.ok !== true) {
-    const error = new Error(result?.message || result?.error || 'Payment update failed.');
-    error.code = result?.error || 'PAYMENT_UPDATE_FAILED';
-    throw error;
-  }
-  return result;
+  if (!protectedPayload) throw new Error('Admin login is required.');
+
+  return cloudPost(protectedPayload);
 }
 
 function parseCloudRegistrations(rows) {
@@ -1785,8 +1772,7 @@ function setupTeamDetailModal() {
 
       addRegistrationPayment({
         id: registrations[index].id,
-        additionalAmount,
-        ...session
+        additionalAmount
       })
         .then((result) => {
           const latest = getRegistrations();
